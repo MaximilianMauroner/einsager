@@ -40,6 +40,15 @@ final class DictationBar: NSObject {
     private var screen: NSScreen?
     private var mouseMonitor: Any?
     private var observers: [NSObjectProtocol] = []
+    private var isRunning = false
+
+    var showAtAllTimes: Bool {
+        didSet {
+            defaults.set(showAtAllTimes, forKey: "dictationBarShowAtAllTimes")
+            updateVisibility()
+            onVisibilityChange?(showAtAllTimes)
+        }
+    }
 
     var onStart: (() -> Void)?
     var onStop: (() -> Void)?
@@ -48,9 +57,11 @@ final class DictationBar: NSObject {
     var onCopy: (() -> Void)?
     var onCustomizeShortcuts: (() -> Void)?
     var onEnableKeyboard: (() -> Void)?
+    var onVisibilityChange: ((Bool) -> Void)?
 
     init(icon: NSImage, defaults: UserDefaults = .standard) {
         self.defaults = defaults
+        showAtAllTimes = defaults.object(forKey: "dictationBarShowAtAllTimes") as? Bool ?? true
         edge = DockEdge(rawValue: defaults.string(forKey: "dictationBarEdge") ?? "") ?? .bottom
         panel = DictationPanel(contentRect: NSRect(x: 0, y: 0, width: 72, height: 30),
                                styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
@@ -76,9 +87,11 @@ final class DictationBar: NSObject {
     }
 
     func show() {
+        guard !isRunning else { return }
+        isRunning = true
         screen = cursorScreen()
         resize()
-        panel.orderFrontRegardless()
+        updateVisibility()
         mouseMonitor = NSEvent.addGlobalMonitorForEvents(matching: .mouseMoved) { [weak self] _ in
             guard let self = self, !self.surface.isDragging else { return }
             let current = self.cursorScreen()
@@ -90,12 +103,23 @@ final class DictationBar: NSObject {
                 self?.resize()
             })
         observers.append(NSWorkspace.shared.notificationCenter.addObserver(forName: NSWorkspace.activeSpaceDidChangeNotification,
-            object: nil, queue: .main) { [weak self] _ in self?.resize(); self?.panel.orderFrontRegardless() })
+            object: nil, queue: .main) { [weak self] _ in self?.resize(); self?.updateVisibility() })
     }
 
     func render(_ display: Display) {
         surface.display = display
         resize()
+        updateVisibility()
+    }
+
+    private func updateVisibility() {
+        guard isRunning else { return }
+        if showAtAllTimes || surface.display != .idle { panel.orderFrontRegardless() }
+        else {
+            // A hidden panel never receives mouseExited, so drop the hover state here.
+            surface.endHover()
+            panel.orderOut(nil)
+        }
     }
 
     func updateLevel(_ level: CGFloat, elapsed: TimeInterval, limit: TimeInterval) {
@@ -139,10 +163,16 @@ final class DictationBar: NSObject {
             item.state = self.edge == edge ? .on : .off
         }
         menu.addItem(.separator())
+        let visibility = menu.addItem(withTitle: "Show bar at all times", action: #selector(toggleVisibility), keyEquivalent: "")
+        visibility.target = self
+        visibility.state = showAtAllTimes ? .on : .off
         let customize = menu.addItem(withTitle: "Customize shortcuts…", action: #selector(customizeShortcuts), keyEquivalent: "")
         customize.target = self
-        let keyboard = menu.addItem(withTitle: "Enable hold-to-talk…", action: #selector(enableKeyboard), keyEquivalent: "")
+        let keyboard = menu.addItem(withTitle: surface.keyboardEnabled ? "Keyboard shortcuts enabled" : "Enable hold-to-talk…",
+                                    action: #selector(enableKeyboard), keyEquivalent: "")
         keyboard.target = self
+        keyboard.isEnabled = !surface.keyboardEnabled
+        menu.autoenablesItems = false
         return menu
     }
 
@@ -155,8 +185,10 @@ final class DictationBar: NSObject {
 
     @objc private func customizeShortcuts() { onCustomizeShortcuts?() }
     @objc private func enableKeyboard() { onEnableKeyboard?() }
+    @objc private func toggleVisibility() { showAtAllTimes.toggle() }
 
     func close() {
+        isRunning = false
         if let mouseMonitor = mouseMonitor { NSEvent.removeMonitor(mouseMonitor) }
         mouseMonitor = nil
         for observer in observers {
@@ -193,6 +225,7 @@ final class BarSurface: NSView {
     var contextMenu: (() -> NSMenu?)?
     var holdHint = "Fn" { didSet { configure() } }
     var handsFreeHint = "Fn+Space" { didSet { configure() } }
+    var keyboardEnabled = false { didSet { if oldValue != keyboardEnabled { configure() } } }
     var canRetry = false { didSet { retryButton.isEnabled = canRetry } }
     var canCopy = false { didSet { copyButton.isEnabled = canCopy } }
 
@@ -251,9 +284,11 @@ final class BarSurface: NSView {
         switch display {
         case .idle:
             iconView.isHidden = false
-            label.stringValue = holdHint + " to talk"
+            label.stringValue = keyboardEnabled ? holdHint + " to talk" : "Click to talk"
             label.isHidden = !hovered
-            toolTip = "Hold " + holdHint + " to talk. Click or press " + handsFreeHint + " for hands-free. Drag to dock."
+            toolTip = keyboardEnabled
+                ? "Hold " + holdHint + " to talk. Click or press " + handsFreeHint + " for hands-free. Drag to dock."
+                : "Click for hands-free. Enable keyboard access from the right-click menu for hold-to-talk. Drag to dock."
             setAccessibilityRole(.button)
             setAccessibilityLabel("Start hands-free dictation")
         case .requesting(let text):
@@ -329,7 +364,14 @@ final class BarSurface: NSView {
     }
 
     override func mouseEntered(with event: NSEvent) { hovered = true; configure(); onHover?() }
-    override func mouseExited(with event: NSEvent) { hovered = false; configure(); onHover?() }
+    override func mouseExited(with event: NSEvent) { endHover() }
+
+    func endHover() {
+        guard hovered else { return }
+        hovered = false
+        configure()
+        onHover?()
+    }
     override func mouseDown(with event: NSEvent) {
         dragStart = NSEvent.mouseLocation
         originalOrigin = window?.frame.origin ?? .zero
