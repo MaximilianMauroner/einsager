@@ -1,0 +1,4 @@
+.venv/
+dist/
+.agents/tmp/
+__pycache__/
