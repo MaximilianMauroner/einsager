@@ -33,6 +33,9 @@ struct KeyBinding: Codable, Equatable {
         if let keyCode = keyCode, [UInt16(kVK_Escape), UInt16(kVK_Tab)].contains(keyCode) {
             return "Escape and Tab must remain available. Choose another key."
         }
+        if flags == .maskCommand && keyCode == UInt16(kVK_ANSI_V) {
+            return "Command+V is reserved for pasting dictated text. Choose another combination."
+        }
         if flags == .maskCommand, let code = keyCode,
            [UInt16(kVK_Space), UInt16(kVK_ANSI_Q), UInt16(kVK_ANSI_W)].contains(code) {
             return "That shortcut belongs to macOS. Choose another combination."

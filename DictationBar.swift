@@ -38,7 +38,6 @@ final class DictationBar: NSObject {
     private let defaults: UserDefaults
     private var edge: DockEdge
     private var screen: NSScreen?
-    private var display: Display = .idle
     private var mouseMonitor: Any?
     private var observers: [NSObjectProtocol] = []
 
@@ -95,7 +94,6 @@ final class DictationBar: NSObject {
     }
 
     func render(_ display: Display) {
-        self.display = display
         surface.display = display
         resize()
     }

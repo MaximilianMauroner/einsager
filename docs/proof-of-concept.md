@@ -38,6 +38,7 @@ its current path because the app references that environment.
    Choices save immediately and persist across launches. Hold supports modifiers
    alone or a modified key; hands-free requires a modified key. **Reset to Fn**
    restores Fn and Fn+Space. Shortcut capture suspends runtime dictation keys.
+   Plain **Command+V** is reserved for pasting dictated text and cannot be assigned.
 7. Speak. The waveform follows microphone levels. Recording stops at 20 minutes.
    The bar displays processing, a recoverable failure, or insertion feedback.
 
@@ -107,7 +108,7 @@ destination and do not follow redirects, so the login token is not forwarded.
 
 ## Verification on this Mac, 9 October 2026
 
-- **Passed:** `zsh scripts/check.sh`: 70 shortcut, session, placement, and clipboard
+- **Passed:** `zsh scripts/check.sh`: 78 shortcut, session, placement, and clipboard
   checks; six Python backend tests; native renders of all bar states;
   nonactivating panel and template PDF checks.
 - **Passed:** native shortcut editor saved Control+Option+K for hold and
