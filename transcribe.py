@@ -22,6 +22,10 @@ def transcribe(audio_path):
     audio = Path(audio_path).read_bytes()
     if not audio or len(audio) > 25 * 1024 * 1024:
         raise RuntimeError("Recording must be nonempty and smaller than 25 MB.")
+    suffix = Path(audio_path).suffix.lower()
+    content_type = {".wav": "audio/wav", ".m4a": "audio/mp4"}.get(suffix)
+    if content_type is None:
+        raise RuntimeError("Recording must be a WAV or M4A audio file.")
     headers = {
         "Authorization": "Bearer " + token,
         "originator": "Codex Desktop",
@@ -29,7 +33,7 @@ def transcribe(audio_path):
     if tokens.get("account_id"):
         headers["ChatGPT-Account-ID"] = tokens["account_id"]
     multipart = CurlMime()
-    multipart.addpart(name="file", content_type="audio/wav", filename="dictation.wav", data=audio)
+    multipart.addpart(name="file", content_type=content_type, filename="dictation" + suffix, data=audio)
     try:
         response = requests.post(ENDPOINT, headers=headers, multipart=multipart,
                                  impersonate="chrome", timeout=90, allow_redirects=False)

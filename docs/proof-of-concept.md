@@ -1,106 +1,141 @@
-# einsager proof of concept
+# einsager live dictation
 
-The project folder and visible app name are lowercase `einsager`. The bundle
-identifier stays `local.max.codexdictation.poc` to retain the app's identity
-across the rename.
+A native macOS menu-bar app that sends recorded speech to ChatGPT using the
+existing local Codex login. Version 0.2.0 adds the approved Breath e icon,
+a small floating dictation bar, hold-to-talk, hands-free, and custom shortcuts.
+The bundle identifier remains `local.max.codexdictation.poc` to keep its identity.
 
-A native macOS menu-bar app for one-way dictation using the local Codex ChatGPT
-login. No OpenAI Platform API key is used.
-
-## Run
+## Build and run
 
 ```sh
 zsh build.sh
-open "dist/einsager.app"
+open dist/einsager.app
 ```
 
 Requires macOS, Xcode Command Line Tools, Python 3.10+, and uv. The build creates
 an ad-hoc signed app and a project-local Python environment. Keep the project at
-its current path: the app references that environment.
+its current path because the app references that environment.
 
-1. Open the app. Its menu-bar label is **einsager**.
-2. Focus the input field where you want the text.
-3. Press **Control + Option + Space** to start. Allow the macOS microphone prompt.
-4. Speak. Press the same shortcut to stop.
-5. The app transcribes the recording and copies the result to the clipboard.
-6. Choose **Allow automatic paste…** in the menu and grant Accessibility access
-   in macOS settings to enable automatic paste. Without that permission, use
-   Command+V. The app does not submit the pasted text.
+## Use
 
-The label changes to **● REC** during recording and **einsager …** during transcription.
-Recording stops after two minutes. The shortcut has no effect during transcription.
-Use **Copy last transcript** to recover the latest result if insertion fails.
-Quit through the menu.
+1. Open the app. The menu bar shows the Breath e icon. The floating bar rests
+   near the bottom of the display containing the pointer.
+2. Click the floating bar for hands-free dictation. Allow Microphone access
+   when macOS asks. If authorization is pending, the bar says so and permits cancellation.
+3. Choose **Enable hold-to-talk…** from the icon menu or the bar's right-click
+   menu. In **System Settings → Privacy & Security → Accessibility**, enable
+   einsager. Then choose **Enable hold-to-talk…** again. If macOS requests
+   Input Monitoring, enable einsager there too. The keyboard event tap must
+   be available for Fn shortcuts and global Escape cancellation.
+4. Focus the text field you want to use. **Hold Fn** while speaking, then
+   release it to transcribe. A hold shorter than half a second is discarded.
+   **Fn+Space** starts or stops hands-free. Clicking the bar also starts it;
+   its square stop button finishes it.
+5. **Double-tap Fn** within half a second to lock hands-free. A third quick
+   press cancels. **Escape** or the cross button cancels an active session.
+6. Choose **Customize shortcuts…** from either menu to change hold-to-talk or
+   hands-free. Click a shortcut, then press and release your combination.
+   Choices save immediately and persist across launches. Hold supports modifiers
+   alone or a modified key; hands-free requires a modified key. **Reset to Fn**
+   restores Fn and Fn+Space. Shortcut capture suspends runtime dictation keys.
+   Plain **Command+V** is reserved for pasting dictated text and cannot be assigned.
+   Reconfiguring keyboard access finishes an active hold and transcribes its audio.
+   A hold waiting for microphone permission is cancelled; hands-free remains active.
+7. Speak. The waveform follows microphone levels. Recording stops at 20 minutes.
+   The bar displays processing, a recoverable failure, or insertion feedback.
+
+**Control+Option+Space** remains a permanent hands-free fallback for existing
+users. It can work without the keyboard event tap. Ordinary modified key
+shortcuts also use Carbon registration when keyboard permission is absent;
+modifier-only and Fn combinations need the event tap. If a fallback registration
+is already in use, the app reports it. Choose another shortcut or enable keyboard
+access. If Wispr or macOS Dictation uses Fn at the same time, choose a custom
+Einsager shortcut or change the other app's binding.
+
+Drag the floating bar to dock at the bottom, left, or right. The right-click
+menu also offers these positions. The selected edge persists. The bar appears
+across Spaces and permits full-screen use without taking text-field focus.
+
+## Insertion and recovery
+
+Automatic paste requires Accessibility access. The app checks the exact focused
+application and accessibility element captured when recording began. If either
+changes, it keeps the result available for manual paste instead of changing focus.
+Choose **Copy last transcript** or the bar's **Copy last** button to recover it.
+The app never submits the text field.
+
+“Paste sent” means Command+V was dispatched, not that the receiving app confirmed
+insertion. Supported text, HTML, and RTF clipboard data is restored after a short
+delay only if the app still owns the clipboard. Unsupported clipboard formats
+are not restored; the transcript remains for manual recovery. A clipboard change
+made by the user is never overwritten by delayed restoration.
+
+A transcription failure retains one recording for **Retry**. Cancel, a new
+recording, successful transcription, or normal quit deletes it. Cancellation
+invalidates pending permission, helper, and paste callbacks. **Quit** is in the
+icon menu.
 
 ## Backend-only check
 
 ```sh
-uv run python transcribe.py recording.wav
+uv run python transcribe.py recording.m4a
+# WAV files are also accepted.
 ```
 
-Use a WAV recording. The command prints JSON with `text` or `error`. It reads
-`$CODEX_HOME/auth.json`, or `~/.codex/auth.json`, on each request. It never writes
-or refreshes that file. If authentication expires, use `codex login`.
+The command prints JSON with `text` or `error`. It reads `$CODEX_HOME/auth.json`,
+or `~/.codex/auth.json`, on each request. It never changes or refreshes that file.
+If authentication expires, use `codex login`.
 
-## Limits and data handling
+Audio is recorded as mono 16 kHz AAC at 32 kbit/s. Twenty minutes is about 4.8 MB
+before container overhead at that target bitrate, below the helper's 25 MiB
+limit. The request timeout is 90 seconds. Input uses the system's default microphone;
+language detection follows the existing backend. Device and language pickers
+are not included because their backend/device contracts were not verified.
+
+## Backend and data limits
 
 This uses `https://chatgpt.com/backend-api/transcribe`, an internal endpoint,
 not a supported public transcription API. Availability, quotas, and behavior
 can change. Successful access does not establish an unlimited allowance or a
-pricing guarantee.
+pricing guarantee. The interface follows the approved live dictation design;
+accuracy, cleanup, and latency are supplied by this backend, not Wispr.
 
-Audio is sent to ChatGPT. Temporary microphone recordings are deleted after the
-request, on error, or on a normal quit. Force-killing the app can leave a temporary
-WAV file. The tested backend response included an audio asset with `asset_ttl`
-of `30d`; this is not a zero-retention path. The app retains only the last
-transcript in memory, and overwrites the clipboard when text arrives.
+Audio is sent to ChatGPT. Force-killing the app can leave an `einsager-*.m4a`
+file in the temporary directory. The earlier backend response included an audio
+asset with `asset_ttl` of `30d`; this is not a zero-retention path. The app keeps
+only its last transcript in memory. Retry retention ends as described above.
 
-The app restores the application focused when recording began, checks focus,
-then sends Command+V. It cannot guarantee insertion into the same input field
-if you change windows or fields during transcription. Clipboard content remains
-available for manual paste.
+`curl-cffi` supplies Chrome-compatible TLS transport. Requests use a fixed HTTPS
+destination and do not follow redirects, so the login token is not forwarded.
 
-`curl-cffi` supplies the request transport. Standard-library urllib encountered
-a Cloudflare challenge on this Mac; a Chrome-compatible TLS transport returned
-the expected transcript. Requests use a fixed HTTPS destination and do not
-follow redirects, so the login token is not forwarded to another destination.
+## Verification on this Mac, 9 October 2026
 
-## Existing projects
+- **Passed:** native suite: 90 shortcut, session, placement, and clipboard
+  checks; six Python backend tests; native renders of all bar states;
+  nonactivating panel and template PDF checks.
+- **Passed:** native shortcut editor saved Control+Option+K for hold and
+  Control+Shift+Space for hands-free. Reset restored Fn and Fn+Space. Native
+  screenshot confirmed labels and controls. The updated packaged app launched.
+- **Passed:** generated AAC speech transcribed through the existing backend. A
+  20-minute AAC test with speech at 0, 600, and 1190 seconds returned all three
+  markers: sunrise, mountain, and river. This checks duration and distant speech
+  positions; it does not establish accuracy for dense 20-minute speech.
+- **Passed:** controlled build, shell syntax, property list, ad-hoc code signature,
+  and whitespace checks. One Swift compiler job ran at a time. Memory free was
+  51% before and 55% after the final compile; retained swap stayed near 2.1 GiB;
+  disk had 50 GiB available. No owned compiler remained.
+- **Blocked:** macOS microphone authorization did not complete during the native
+  recording journey. Cancellation returned to idle and kept the external editor
+  focused. Physical Fn handling, live recording, and automatic insertion still
+  need a user check after Microphone and Accessibility access are enabled.
+- **Not verified:** exact pixel matching against Wispr's installed live bar,
+  multi-display/full-screen journeys, dense long-form accuracy, and user acceptance.
+- **CI, independent review, and merge:** not run. This project has no existing CI
+  or nesting/branching checks. None were waived. No PR was requested.
 
-- [Wangnov/codex-asr](https://github.com/Wangnov/codex-asr): Rust CLI and local
-  Whisper-compatible REST bridge using the Codex login.
-- [nakasyou/codex-transcribe](https://github.com/nakasyou/codex-transcribe):
-  recorded-file transcription using Codex authentication.
-- [OpenWhispr OAuth request](https://github.com/OpenWhispr/openwhispr/issues/1319):
-  native subscription sign-in request; its initial scope concerns text cleanup
-  rather than a stable speech API.
+## Compatibility
 
-This proof of concept implements the requested hotkey and paste workflow without
-requiring OpenWhispr configuration. The Python backend can be reused in a future
-OpenWhispr adapter. No backward compatibility code was added.
-
-## Verification on this Mac
-
-- Rename verification: rebuilt from the `einsager/` folder with one Swift
-  compiler job. Shell and Python syntax, dependency import, bundle name,
-  relocated Python path, property list, and code signature passed. Launch
-  Services started `dist/einsager.app`; the new process remained running.
-  Memory free percentage stayed at 37%; no compiler process remained.
-  Live microphone, hotkey, and paste were not rechecked after this rename.
-
-- Passed: generated speech uploaded through the packaged Python environment and
-  the existing ChatGPT login, with HTTP 200 and the expected text:
-  “This is a test of Codex dictation. The quick brown fox jumps over the lazy dog.”
-- Passed: missing login and empty recordings produce clear errors.
-- Passed: Swift build, Python syntax, shell syntax, property-list validation,
-  and ad-hoc code-signature validation.
-- Passed: Launch Services started the packaged app and its process remained running.
-- Blocked: native UI inspection timed out twice. Live microphone recording,
-  global hotkey handling, and paste into another app still need a manual check
-  with the microphone and Accessibility permissions enabled.
-- CI and code review did not run; this scratch project has no CI, review process,
-  or existing nesting/branching checks. No separate nesting check was added.
-- Build controls: one Swift compiler job; local memory, load, disk, and compiler
-  process checks before/during build. Reported memory free percentage was 44%
-  before and 57% afterward; available disk space was 59 GiB. No compiler process
-  remained after the build.
+`Control+Option+Space` is preserved in `KeyBinding.legacyHandsFree` and in the
+runtime event tap and Carbon fallback. It remains a permanent user control;
+there is no planned removal. The original bundle identifier and WAV helper input
+remain supported. There are no stored-data migrations.

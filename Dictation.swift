@@ -4,108 +4,317 @@ import Carbon
 
 final class DictationApp: NSObject, NSApplicationDelegate {
     private var item: NSStatusItem!
-    private var hotkey: EventHotKeyRef?
+    private var bar: DictationBar!
+    private var session = DictationSession()
     private var recorder: AVAudioRecorder?
     private var recordingURL: URL?
-    private var target: NSRunningApplication?
+    private var target: PasteTarget?
     private var process: Process?
-    private var busy = false
     private var lastText = ""
+    private var failureMessage = ""
+    private var meterTimer: Timer?
     private var stopTimer: Timer?
+    private var messageTimer: Timer?
+    private var pasteWork: DispatchWorkItem?
+    private var restoreWork: DispatchWorkItem?
+    private var clipboardLease: ClipboardLease?
+    private var hotkeys: [EventHotKeyRef] = []
+    private var pressedHotkeys: Set<UInt32> = []
+    private let shortcuts = ShortcutSettings()
+    private var shortcutInput = ShortcutInput()
+    private lazy var shortcutEditor: ShortcutEditor = {
+        let editor = ShortcutEditor(settings: shortcuts)
+        editor.onChange = { [weak self] in self?.configureShortcuts() }
+        editor.onClose = { [weak self] in self?.configureShortcuts() }
+        return editor
+    }()
+    private var shortcutLabel: NSMenuItem!
+    private var shortcutsItem: NSMenuItem!
+    private var hotkeyHandler: EventHandlerRef?
+    private var eventTap: CFMachPort?
+    private var eventSource: CFRunLoopSource?
+    private var isTerminating = false
+    private var heardAudio = false
     private var action: NSMenuItem!
+    private var retryItem: NSMenuItem!
+    private var copyItem: NSMenuItem!
+    private var keyboardItem: NSMenuItem!
+    private let recordingLimit: TimeInterval = 20 * 60
 
     func applicationDidFinishLaunching(_ notification: Notification) {
-        item = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
+        let icon = Bundle.main.url(forResource: "einsager-breath", withExtension: "pdf")
+            .flatMap { NSImage(contentsOf: $0) } ?? NSImage(systemSymbolName: "mic", accessibilityDescription: "einsager")!
+        icon.size = NSSize(width: 18, height: 18)
+        icon.isTemplate = true
+        item = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
+        item.button?.image = icon
+        item.button?.setAccessibilityLabel("einsager dictation")
         let menu = NSMenu()
-        menu.addItem(withTitle: "einsager · ⌃⌥Space", action: nil, keyEquivalent: "")
+        shortcutLabel = menu.addItem(withTitle: "einsager", action: nil, keyEquivalent: "")
         action = menu.addItem(withTitle: "Start dictation", action: #selector(toggle), keyEquivalent: "")
-        menu.addItem(withTitle: "Copy last transcript", action: #selector(copyLast), keyEquivalent: "")
+        menu.addItem(withTitle: "Cancel dictation", action: #selector(cancel), keyEquivalent: "")
+        retryItem = menu.addItem(withTitle: "Retry last recording", action: #selector(retry), keyEquivalent: "")
+        copyItem = menu.addItem(withTitle: "Copy last transcript", action: #selector(copyLast), keyEquivalent: "")
         menu.addItem(withTitle: "Allow automatic paste…", action: #selector(requestAccessibility), keyEquivalent: "")
-        menu.addItem(NSMenuItem.separator())
+        keyboardItem = menu.addItem(withTitle: "Enable hold-to-talk…", action: #selector(enableKeyboard), keyEquivalent: "")
+        shortcutsItem = menu.addItem(withTitle: "Customize shortcuts…", action: #selector(editShortcuts), keyEquivalent: "")
+        menu.addItem(.separator())
         menu.addItem(withTitle: "Quit", action: #selector(quit), keyEquivalent: "q")
+        menu.autoenablesItems = false
         for entry in menu.items { entry.target = self }
         item.menu = menu
-        update("Ready")
+        bar = DictationBar(icon: icon)
+        bar.onStart = { [weak self] in self?.toggle() }
+        bar.onStop = { [weak self] in self?.stop() }
+        bar.onCancel = { [weak self] in self?.cancel() }
+        bar.onRetry = { [weak self] in self?.retry() }
+        bar.onCopy = { [weak self] in self?.copyLast() }
+        bar.onCustomizeShortcuts = { [weak self] in self?.editShortcuts() }
+        bar.onEnableKeyboard = { [weak self] in self?.enableKeyboard() }
+        bar.show()
+        installHotkeyHandler()
+        installKeyboardTap()
+        configureShortcuts()
+        refresh()
+    }
 
-        var event = EventTypeSpec(eventClass: OSType(kEventClassKeyboard), eventKind: UInt32(kEventHotKeyPressed))
-        InstallEventHandler(GetApplicationEventTarget(), { _, _, context in
-            guard let context = context else { return OSStatus(eventNotHandledErr) }
+    private func installHotkeyHandler() {
+        var events = [EventTypeSpec(eventClass: OSType(kEventClassKeyboard), eventKind: UInt32(kEventHotKeyPressed)),
+                      EventTypeSpec(eventClass: OSType(kEventClassKeyboard), eventKind: UInt32(kEventHotKeyReleased))]
+        InstallEventHandler(GetApplicationEventTarget(), { _, event, context in
+            guard let event = event, let context = context else { return OSStatus(eventNotHandledErr) }
             let app = Unmanaged<DictationApp>.fromOpaque(context).takeUnretainedValue()
-            app.toggle()
-            return noErr
-        }, 1, &event, Unmanaged.passUnretained(self).toOpaque(), nil)
-        let id = EventHotKeyID(signature: 0x43445844, id: 1)
-        let result = RegisterEventHotKey(UInt32(kVK_Space), UInt32(controlKey | optionKey), id,
-                                        GetApplicationEventTarget(), 0, &hotkey)
-        if result != noErr { showError("The hotkey is already in use. Use Start dictation from the menu.") }
-    }
-
-    private func update(_ status: String) {
-        item.button?.title = recorder != nil ? "● REC" : busy ? "einsager …" : "einsager"
-        item.button?.toolTip = "einsager: " + status
-        action.title = recorder != nil ? "Stop and transcribe" : busy ? "Transcribing…" : "Start dictation"
-        action.isEnabled = !busy
-    }
-
-    @objc func toggle() {
-        guard !busy else { return }
-        if recorder != nil { finishRecording(); return }
-        target = NSWorkspace.shared.frontmostApplication
-        busy = true
-        update("Requesting microphone")
-        AVCaptureDevice.requestAccess(for: .audio) { granted in
-            DispatchQueue.main.async {
-                self.busy = false
-                if granted { self.startRecording() }
-                else { self.showError("Allow microphone access for einsager in System Settings → Privacy & Security → Microphone.") }
+            var id = EventHotKeyID()
+            guard GetEventParameter(event, EventParamName(kEventParamDirectObject), EventParamType(typeEventHotKeyID),
+                                    nil, MemoryLayout<EventHotKeyID>.size, nil, &id) == noErr else { return OSStatus(eventNotHandledErr) }
+            if app.shortcutEditor.isVisible { return noErr }
+            if GetEventKind(event) == UInt32(kEventHotKeyReleased) {
+                app.pressedHotkeys.remove(id.id)
+                if id.id == 2 { app.perform(app.session.holdReleased(at: ProcessInfo.processInfo.systemUptime)) }
+            } else if app.pressedHotkeys.insert(id.id).inserted {
+                if id.id == 2 { app.perform(app.session.holdPressed(at: ProcessInfo.processInfo.systemUptime)) }
+                else { app.toggle() }
             }
+            return noErr
+        }, events.count, &events, Unmanaged.passUnretained(self).toOpaque(), &hotkeyHandler)
+    }
+
+    private func configureShortcuts() {
+        perform(session.shortcutsWillChange())
+        shortcutInput.reset()
+        pressedHotkeys.removeAll()
+        for hotkey in hotkeys { UnregisterEventHotKey(hotkey) }
+        hotkeys.removeAll()
+        var registrationFailed = false
+        // Carbon keeps existing users' shortcut available when keyboard permission is absent.
+        if eventTap == nil {
+            let bindings: [(UInt32, KeyBinding)] = [(1, .legacyHandsFree), (2, shortcuts.hold), (3, shortcuts.handsFree)]
+            for (id, binding) in bindings {
+                if id == 3 && binding == .legacyHandsFree { continue }
+                guard let key = binding.keyCode, let modifiers = binding.carbonModifiers else { continue }
+                var reference: EventHotKeyRef?
+                let result = RegisterEventHotKey(UInt32(key), modifiers, EventHotKeyID(signature: 0x43445844, id: id),
+                                                GetApplicationEventTarget(), 0, &reference)
+                if result == noErr, let reference = reference { hotkeys.append(reference) }
+                else { registrationFailed = true }
+            }
+        }
+        bar.surface.holdHint = shortcuts.hold.displayName
+        bar.surface.handsFreeHint = shortcuts.handsFree.displayName
+        refresh()
+        if registrationFailed { showMessage("Shortcut in use. Enable keyboard access or choose another.") }
+    }
+
+    @objc private func editShortcuts() {
+        guard session.canStart else { return }
+        shortcutInput.reset()
+        for hotkey in hotkeys { UnregisterEventHotKey(hotkey) }
+        hotkeys.removeAll()
+        shortcutEditor.show()
+    }
+
+    private func installKeyboardTap() {
+        guard eventTap == nil else { return }
+        let mask = (CGEventMask(1) << CGEventType.flagsChanged.rawValue) | (CGEventMask(1) << CGEventType.keyDown.rawValue) | (CGEventMask(1) << CGEventType.keyUp.rawValue)
+        eventTap = CGEvent.tapCreate(tap: .cgSessionEventTap, place: .headInsertEventTap, options: .defaultTap,
+            eventsOfInterest: mask, callback: { _, type, event, context in
+                guard let context = context else { return Unmanaged.passUnretained(event) }
+                let app = Unmanaged<DictationApp>.fromOpaque(context).takeUnretainedValue()
+                return app.handleKeyboard(type, event: event)
+            }, userInfo: Unmanaged.passUnretained(self).toOpaque())
+        guard let eventTap = eventTap else { return }
+        eventSource = CFMachPortCreateRunLoopSource(kCFAllocatorDefault, eventTap, 0)
+        if let eventSource = eventSource { CFRunLoopAddSource(CFRunLoopGetMain(), eventSource, .commonModes) }
+        CGEvent.tapEnable(tap: eventTap, enable: true)
+    }
+
+    private func handleKeyboard(_ type: CGEventType, event: CGEvent) -> Unmanaged<CGEvent>? {
+        if type == .tapDisabledByTimeout || type == .tapDisabledByUserInput {
+            if let eventTap = eventTap { CGEvent.tapEnable(tap: eventTap, enable: true) }
+            shortcutInput.reset()
+            if session.mode == .hold { cancel() }
+            return Unmanaged.passUnretained(event)
+        }
+        guard !shortcutEditor.isVisible else { return Unmanaged.passUnretained(event) }
+        let input: ShortcutInput.Event
+        switch type {
+        case .flagsChanged: input = .modifiers
+        case .keyDown: input = .down
+        case .keyUp: input = .up
+        default: return Unmanaged.passUnretained(event)
+        }
+        let result = shortcutInput.handle(input, keyCode: UInt16(event.getIntegerValueField(.keyboardEventKeycode)),
+            flags: event.flags, repeatKey: event.getIntegerValueField(.keyboardEventAutorepeat) != 0,
+            hold: shortcuts.hold, handsFree: shortcuts.handsFree, active: !session.canStart)
+        switch result.action {
+        case .holdPressed: perform(session.holdPressed(at: ProcessInfo.processInfo.systemUptime))
+        case .holdReleased: perform(session.holdReleased(at: ProcessInfo.processInfo.systemUptime))
+        case .toggle: toggle()
+        case .cancel: cancel()
+        case nil: break
+        }
+        if result.consume { return nil }
+        return Unmanaged.passUnretained(event)
+    }
+
+    @objc private func toggle() { perform(session.toggle()) }
+    private func stop() { perform(session.finish()) }
+    @objc private func cancel() { perform(session.cancel()) }
+    @objc private func retry() {
+        guard recordingURL != nil else { return }
+        perform(session.retry())
+    }
+
+    private func perform(_ action: DictationSession.Action) {
+        switch action {
+        case .none:
+            if session.mode != nil { refresh() }
+        case .cancel:
+            discardRecording()
+            pasteWork?.cancel()
+            pasteWork = nil
+            restoreWork?.cancel()
+            restoreWork = nil
+            clipboardLease?.restore()
+            clipboardLease = nil
+            showMessage("Dictation cancelled")
+        case .begin(let id):
+            discardRecording()
+            heardAudio = false
+            target = PasteTarget.capture()
+            failureMessage = ""
+            refresh()
+            AVCaptureDevice.requestAccess(for: .audio) { [weak self] granted in
+                DispatchQueue.main.async {
+                    guard let self = self, !self.isTerminating, self.session.id == id else { return }
+                    if granted && self.session.microphoneReady(for: id) { self.startRecording(id) }
+                    else { self.fail(id, "Allow microphone access in System Settings → Privacy & Security → Microphone.") }
+                }
+            }
+        case .finish(let id): finishRecording(id)
+        case .retry(let id): transcribe(id)
         }
     }
 
-    private func startRecording() {
-        let url = FileManager.default.temporaryDirectory.appendingPathComponent("codex-dictation-\(UUID().uuidString).wav")
+    private func refresh() {
+        messageTimer?.invalidate()
+        messageTimer = nil
+        let display: DictationBar.Display
+        let status: String
+        switch session.state {
+        case .idle: display = .idle; status = "Ready"
+        case .requesting:
+            status = AVCaptureDevice.authorizationStatus(for: .audio) == .notDetermined
+                ? "Allow microphone access…" : "Starting microphone…"
+            display = .requesting(status)
+        case .recording(_, let mode): display = .recording(handsFree: mode == .handsFree); status = "Recording"
+        case .processing, .delivering: display = .processing; status = "Transcribing"
+        case .failed: display = .failure(failureMessage); status = failureMessage
+        }
+        bar.render(display)
+        bar.surface.canRetry = recordingURL != nil
+        bar.surface.canCopy = !lastText.isEmpty
+        item.button?.toolTip = "einsager: " + status
+        action.title = session.mode != nil ? "Stop and transcribe" : "Start dictation"
+        action.isEnabled = session.canStart || session.mode != nil
+        retryItem.isEnabled = recordingURL != nil && { if case .failed = session.state { return true }; return false }()
+        copyItem.isEnabled = !lastText.isEmpty
+        shortcutsItem.isEnabled = session.canStart
+        shortcutLabel.title = "einsager · hold " + shortcuts.hold.displayName + " / hands-free " + shortcuts.handsFree.displayName
+        keyboardItem.isEnabled = eventTap == nil
+        keyboardItem.title = eventTap == nil ? "Enable hold-to-talk…" : "Keyboard shortcuts enabled"
+    }
+
+    private func showMessage(_ text: String) {
+        refresh()
+        bar.render(.message(text))
+        item.button?.toolTip = "einsager: " + text
+        messageTimer = Timer.scheduledTimer(withTimeInterval: 5, repeats: false) { [weak self] _ in self?.refresh() }
+    }
+
+    private func startRecording(_ id: UUID) {
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent("einsager-\(id).m4a")
         do {
             let audio = try AVAudioRecorder(url: url, settings: [
-                AVFormatIDKey: kAudioFormatLinearPCM,
-                AVSampleRateKey: 16000,
-                AVNumberOfChannelsKey: 1,
-                AVLinearPCMBitDepthKey: 16,
-                AVLinearPCMIsFloatKey: false,
-                AVLinearPCMIsBigEndianKey: false
+                AVFormatIDKey: kAudioFormatMPEG4AAC, AVSampleRateKey: 16000, AVNumberOfChannelsKey: 1,
+                AVEncoderBitRateKey: 32000, AVEncoderAudioQualityKey: AVAudioQuality.high.rawValue
             ])
+            audio.isMeteringEnabled = true
             guard audio.record() else { throw NSError(domain: "Recording", code: 1,
                 userInfo: [NSLocalizedDescriptionKey: "Microphone recording could not start."]) }
             recordingURL = url
             recorder = audio
-            update("Recording; press ⌃⌥Space to stop")
-            stopTimer = Timer.scheduledTimer(withTimeInterval: 120, repeats: false) { _ in self.finishRecording() }
+            bar.surface.waveform.levels = Array(repeating: 0, count: 9)
+            refresh()
+            meterTimer = Timer.scheduledTimer(withTimeInterval: 1.0 / 15, repeats: true) { [weak self] _ in
+                guard let self = self, let recorder = self.recorder else { return }
+                recorder.updateMeters()
+                if recorder.peakPower(forChannel: 0) > -65 { self.heardAudio = true }
+                let level = CGFloat(pow(10, Double(recorder.averagePower(forChannel: 0)) / 30))
+                self.bar.updateLevel(level, elapsed: recorder.currentTime, limit: self.recordingLimit)
+            }
+            stopTimer = Timer.scheduledTimer(withTimeInterval: recordingLimit, repeats: false) { [weak self] _ in self?.stop() }
         } catch {
             try? FileManager.default.removeItem(at: url)
-            showError(error.localizedDescription)
+            fail(id, error.localizedDescription)
         }
     }
 
-    private func finishRecording() {
-        guard let audio = recorder, let url = recordingURL else { return }
-        let duration = audio.currentTime
-        audio.stop()
+    private func stopAudio() {
+        recorder?.stop()
         recorder = nil
+        meterTimer?.invalidate()
+        meterTimer = nil
         stopTimer?.invalidate()
         stopTimer = nil
-        if duration < 0.4 {
-            try? FileManager.default.removeItem(at: url)
-            recordingURL = nil
-            update("Recording too short")
+    }
+
+    private func finishRecording(_ id: UUID) {
+        let duration = recorder?.currentTime ?? 0
+        stopAudio()
+        guard duration >= 0.5 else {
+            _ = session.cancel()
+            discardRecording()
+            showMessage("Hold " + shortcuts.hold.displayName + " to talk, or click for hands-free")
             return
         }
-        busy = true
-        update("Transcribing")
+        guard heardAudio else {
+            _ = session.cancel()
+            discardRecording()
+            showMessage("No microphone audio. Check your input device.")
+            return
+        }
+        transcribe(id)
+    }
+
+    private func transcribe(_ id: UUID) {
+        guard let url = recordingURL else { fail(id, "No recording to retry. Start a new dictation."); return }
+        refresh()
         let task = Process()
         let output = Pipe()
         guard let script = Bundle.main.url(forResource: "transcribe", withExtension: "py"),
               let python = Bundle.main.object(forInfoDictionaryKey: "DictationPython") as? String else {
-            cleanupRecording()
-            showError("The app is missing its transcription helper. Rebuild the app.")
+            fail(id, "The transcription helper is missing. Rebuild einsager.")
             return
         }
         task.executableURL = URL(fileURLWithPath: python)
@@ -114,94 +323,137 @@ final class DictationApp: NSObject, NSApplicationDelegate {
         task.standardError = FileHandle.nullDevice
         process = task
         do { try task.run() }
-        catch {
-            cleanupRecording()
-            showError("Could not start the transcription helper: " + error.localizedDescription)
-            return
-        }
+        catch { process = nil; fail(id, "Could not start transcription. Rebuild einsager."); return }
         DispatchQueue.global(qos: .userInitiated).async {
             let data = output.fileHandleForReading.readDataToEndOfFile()
             task.waitUntilExit()
             let result = (try? JSONSerialization.jsonObject(with: data)) as? [String: String]
             DispatchQueue.main.async {
+                guard !self.isTerminating, self.session.state == .processing(id) else { return }
                 self.process = nil
-                self.cleanupRecording()
                 if task.terminationStatus == 0, let text = result?["text"] {
-                    self.deliver(text)
-                } else {
-                    self.showError(result?["error"] ?? "The transcription helper failed.")
-                }
+                    guard self.session.transcriptReady(for: id) else { return }
+                    self.deleteAudioFile()
+                    self.deliver(text, id: id)
+                } else { self.fail(id, result?["error"] ?? "Transcription failed. Retry or discard this recording.") }
             }
         }
     }
 
-    private func cleanupRecording() {
-        if let url = recordingURL { try? FileManager.default.removeItem(at: url) }
-        recordingURL = nil
-        busy = false
+    private func fail(_ id: UUID, _ message: String) {
+        guard session.fail(id) else { return }
+        stopAudio()
+        failureMessage = message
+        refresh()
     }
 
-    private func deliver(_ text: String) {
+    private func deleteAudioFile() {
+        if let url = recordingURL { try? FileManager.default.removeItem(at: url) }
+        recordingURL = nil
+    }
+
+    private func discardRecording() {
+        stopAudio()
+        if let process = process, process.isRunning { process.terminate() }
+        process = nil
+        deleteAudioFile()
+    }
+
+    private func deliver(_ text: String, id: UUID) {
         guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
-            update("No speech detected")
+            _ = session.deliveryFinished(for: id)
+            showMessage("No speech detected")
             return
         }
         lastText = text
-        copyLast()
-        guard AXIsProcessTrusted(), let app = target, !app.isTerminated,
-              app.processIdentifier != ProcessInfo.processInfo.processIdentifier else {
-            update("Copied; press Command+V to paste")
+        copyItem.isEnabled = true
+        guard let target = target, target.isStillFocused else {
+            copyLast()
+            _ = session.deliveryFinished(for: id)
+            showMessage("Copied. Press ⌘V in your text field.")
             return
         }
-        app.activate(options: [])
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
-            guard NSWorkspace.shared.frontmostApplication?.processIdentifier == app.processIdentifier else {
-                self.update("Copied; target app is not focused")
+        let lease = ClipboardLease()
+        lease.write(text)
+        clipboardLease = lease
+        let work = DispatchWorkItem { [weak self] in
+            guard let self = self, self.session.state == .delivering(id) else { return }
+            guard target.isStillFocused, lease.stillOwnsClipboard else {
+                self.clipboardLease = nil
+                _ = self.session.deliveryFinished(for: id)
+                self.showMessage("Focus or clipboard changed. Use Copy last.")
                 return
             }
-            let down = CGEvent(keyboardEventSource: nil, virtualKey: 9, keyDown: true)
-            let up = CGEvent(keyboardEventSource: nil, virtualKey: 9, keyDown: false)
-            down?.flags = .maskCommand
-            up?.flags = .maskCommand
-            down?.post(tap: .cghidEventTap)
-            up?.post(tap: .cghidEventTap)
-            self.update("Pasted; last transcript available in menu")
+            guard let down = CGEvent(keyboardEventSource: nil, virtualKey: 9, keyDown: true),
+                  let up = CGEvent(keyboardEventSource: nil, virtualKey: 9, keyDown: false) else {
+                self.clipboardLease = nil
+                _ = self.session.deliveryFinished(for: id)
+                self.showMessage("Copied. Press ⌘V to paste.")
+                return
+            }
+            down.flags = .maskCommand
+            up.flags = .maskCommand
+            down.post(tap: .cghidEventTap)
+            up.post(tap: .cghidEventTap)
+            _ = self.session.deliveryFinished(for: id)
+            self.showMessage("Paste sent. Copy last is available.")
+            let restore = DispatchWorkItem { [weak self] in
+                lease.restore()
+                if self?.clipboardLease === lease { self?.clipboardLease = nil }
+            }
+            self.restoreWork = restore
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.8, execute: restore)
         }
+        pasteWork = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.15, execute: work)
     }
 
-    @objc func copyLast() {
+    @objc private func copyLast() {
         guard !lastText.isEmpty else { return }
+        restoreWork?.cancel()
+        restoreWork = nil
+        clipboardLease = nil
         NSPasteboard.general.clearContents()
         NSPasteboard.general.setString(lastText, forType: .string)
     }
 
-    @objc func requestAccessibility() {
+    @objc private func requestAccessibility() {
         let options = [kAXTrustedCheckOptionPrompt.takeUnretainedValue() as String: true] as CFDictionary
         _ = AXIsProcessTrustedWithOptions(options)
+        installKeyboardTap()
+        configureShortcuts()
     }
 
-    private func showError(_ message: String) {
-        busy = false
-        update("Error")
-        let alert = NSAlert()
-        alert.messageText = "einsager"
-        alert.informativeText = message
-        alert.runModal()
+    @objc private func enableKeyboard() {
+        requestAccessibility()
+        if eventTap == nil { showMessage("Allow Accessibility, then select Enable hold-to-talk again.") }
     }
 
-    @objc func quit() { NSApplication.shared.terminate(nil) }
+    @objc private func quit() { NSApplication.shared.terminate(nil) }
 
     func applicationWillTerminate(_ notification: Notification) {
-        stopTimer?.invalidate()
-        recorder?.stop()
-        if let task = process, task.isRunning { task.terminate() }
-        cleanupRecording()
-        if let key = hotkey { UnregisterEventHotKey(key) }
+        isTerminating = true
+        _ = session.cancel()
+        discardRecording()
+        messageTimer?.invalidate()
+        pasteWork?.cancel()
+        restoreWork?.cancel()
+        clipboardLease?.restore()
+        bar.close()
+        for hotkey in hotkeys { UnregisterEventHotKey(hotkey) }
+        if let hotkeyHandler = hotkeyHandler { RemoveEventHandler(hotkeyHandler) }
+        if let eventSource = eventSource { CFRunLoopRemoveSource(CFRunLoopGetMain(), eventSource, .commonModes) }
+        if let eventTap = eventTap { CFMachPortInvalidate(eventTap) }
     }
 }
 
-let app = NSApplication.shared
-let delegate = DictationApp()
-app.delegate = delegate
-app.setActivationPolicy(.accessory)
-app.run()
+@main
+struct Einsager {
+    static func main() {
+        let app = NSApplication.shared
+        let delegate = DictationApp()
+        app.delegate = delegate
+        app.setActivationPolicy(.accessory)
+        app.run()
+    }
+}
