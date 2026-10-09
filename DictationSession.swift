@@ -99,6 +99,11 @@ struct DictationSession {
         return .finish(id)
     }
 
+    mutating func shortcutsWillChange() -> Action {
+        guard mode == .hold else { return .none }
+        return finish()
+    }
+
     mutating func cancel() -> Action {
         guard state != .idle else { return .none }
         state = .idle

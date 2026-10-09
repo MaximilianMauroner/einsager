@@ -100,6 +100,7 @@ final class DictationApp: NSObject, NSApplicationDelegate {
     }
 
     private func configureShortcuts() {
+        perform(session.shortcutsWillChange())
         shortcutInput.reset()
         pressedHotkeys.removeAll()
         for hotkey in hotkeys { UnregisterEventHotKey(hotkey) }
