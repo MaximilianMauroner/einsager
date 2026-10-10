@@ -41,9 +41,10 @@ export class MacKeyboard {
     const child = spawn(this.file, [], { stdio: ['pipe', 'pipe', 'ignore'] });
     this.child = child;
     // A missing or crashed helper leaves the Electron fallback shortcut in charge.
+    // 'close' follows the helper's last output line, so no action arrives after it stops.
     child.on('error', () => this.stopped(child));
-    child.on('exit', () => this.stopped(child));
-    // A write after the helper dies fails with EPIPE; 'exit' already reports the fallback.
+    child.on('close', () => this.stopped(child));
+    // A write after the helper dies fails with EPIPE; 'close' already reports the fallback.
     child.stdin.on('error', () => {});
     createInterface({ input: child.stdout }).on('line', line => {
       const message = parseHelperLine(line);
@@ -65,6 +66,8 @@ export class MacKeyboard {
   private stopped(child: ChildProcess) {
     if (this.child !== child) return;
     this.child = undefined;
+    // No release can arrive now, so the pill cancels a hold-mode recording. stop() clears the child first, so quitting sends nothing.
+    this.onAction('interrupted');
     this.onState(undefined);
   }
 }
