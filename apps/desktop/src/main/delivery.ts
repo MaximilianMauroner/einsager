@@ -1,6 +1,7 @@
 import type { ClipboardMode, TranscriptResult } from '../shared/contract.ts';
 
 type MaybePromise<T> = T | Promise<T>;
+type Transcript = Extract<TranscriptResult, { text: string }>;
 export type PasteTarget = (ready: () => Promise<boolean>, signal: AbortSignal) => Promise<boolean>;
 export interface Clipboard {
   writeText(text: string): MaybePromise<void>;
@@ -22,12 +23,8 @@ export class TranscriptDelivery {
   private captureTarget?: (signal: AbortSignal) => Promise<PasteTarget | undefined>;
   private restoreDelay: number;
   private pendingRestore?: { timer: ReturnType<typeof setTimeout>; run: () => Promise<void> };
-  /** Counts explicit copies, so a restore that is already reading the clipboard cannot undo one. */
-  private copies = 0;
-  /** The restore in progress, from its clipboard read through its write. Delivery and quit wait for it. */
-  private running?: Promise<void>;
-  /** The restore write in progress. An explicit copy waits only for this, so the copy lands last. */
-  private restoring?: Promise<void>;
+  /** The end of the clipboard lock. Copies, deliveries, and restores run one at a time, so they never interleave. */
+  private tail: Promise<unknown> = Promise.resolve();
 
   constructor(
     clipboard: Clipboard,
@@ -56,20 +53,30 @@ export class TranscriptDelivery {
     if (revision === this.generation) this.target = target;
   }
 
-  /** Copies on the user's request. Their copy wins over a pending restore. */
+  /**
+   * Copies on the user's request, after the clipboard step in progress. Their copy wins over a pending
+   * restore, including one that a delivery schedules while the copy waits.
+   */
   async copy(text: string) {
-    this.copies++;
     this.dropRestore();
-    await this.restoring;
-    return this.write(text);
+    return this.exclusive(() => {
+      this.dropRestore();
+      return this.write(text);
+    });
   }
 
   async copyLast() { return this.text ? this.copy(this.text) : false; }
 
-  /** Runs a pending restore now and waits for one already running, for example before quit. */
+  /**
+   * Runs a pending restore now and waits for the clipboard steps in progress, for example before quit.
+   * A delivery still in progress can schedule a restore meanwhile, so this repeats until none is pending.
+   * Never call it inside the clipboard lock: it would wait for its own step.
+   */
   async restoreNow() {
-    await this.pendingRestore?.run();
-    await this.running;
+    do {
+      await this.pendingRestore?.run();
+      await this.tail;
+    } while (this.pendingRestore);
   }
 
   /** Forgets the last transcript after history deletes it, so Copy last cannot bring it back. */
@@ -84,6 +91,13 @@ export class TranscriptDelivery {
     const target = this.target;
     // An earlier paste has had a whole recording's time to read its text, so its restore can run now.
     await this.restoreNow();
+    return this.exclusive(() => this.paste(result, revision, mode, target));
+  }
+
+  /** Saves, writes, and pastes a transcript. It runs inside the clipboard lock, so it restores directly. */
+  private async paste(
+    result: Transcript, revision: number, mode: ClipboardMode, target?: PasteTarget,
+  ): Promise<TranscriptResult> {
     // Only a paste can give the clipboard back. Without a saved copy, Never leaves the clipboard alone
     // and If paste fails keeps the transcript copied for manual paste.
     const restore = mode !== 'always' && target ? await this.save() : undefined;
@@ -109,10 +123,17 @@ export class TranscriptDelivery {
       return { ...result, delivery: 'pasted' };
     }
     if (mode === 'never' && restore) {
-      await this.restoreIfUnchanged(result.text, restore);
-      return { ...result, delivery: 'not-copied' };
+      const stillCopied = await this.restoreIfUnchanged(result.text, restore);
+      return { ...result, delivery: stillCopied ? 'copied' : 'not-copied' };
     }
     return { ...result, delivery: 'copied' };
+  }
+
+  /** Runs a clipboard step after every earlier one. A failed step does not block the steps after it. */
+  private exclusive<T>(task: () => Promise<T>) {
+    const run = this.tail.then(task);
+    this.tail = run.catch(() => {});
+    return run;
   }
 
   private async write(text: string) {
@@ -127,9 +148,10 @@ export class TranscriptDelivery {
 
   private scheduleRestore(text: string, restore: () => MaybePromise<void>) {
     this.dropRestore();
-    const run = () => {
+    const run = async () => {
       this.dropRestore();
-      return this.restoreIfUnchanged(text, restore);
+      // A failed scheduled restore stays silent: the transcript stays copied, which is still recoverable.
+      await this.exclusive(() => this.restoreIfUnchanged(text, restore));
     };
     this.pendingRestore = { timer: setTimeout(() => { void run(); }, this.restoreDelay), run };
   }
@@ -139,17 +161,14 @@ export class TranscriptDelivery {
     this.pendingRestore = undefined;
   }
 
-  /** Puts the earlier contents back unless something else replaced the transcript meanwhile. Never rejects. */
-  private restoreIfUnchanged(text: string, restore: () => MaybePromise<void>) {
-    const copies = this.copies;
-    const run = async () => {
-      try {
-        if (await this.clipboard.readText() !== text || copies !== this.copies) return;
-        this.restoring = Promise.resolve(restore()).catch(() => {});
-        await this.restoring;
-      } catch { /* The transcript stays copied, which is still recoverable. */ }
-    };
-    this.running = run();
-    return this.running;
+  /**
+   * Puts the earlier contents back unless something else replaced the transcript meanwhile. Call it inside
+   * the clipboard lock. Returns whether the transcript may still be on the clipboard.
+   */
+  private async restoreIfUnchanged(text: string, restore: () => MaybePromise<void>) {
+    try {
+      if (await this.clipboard.readText() === text) await restore();
+      return false;
+    } catch { return true; }
   }
 }

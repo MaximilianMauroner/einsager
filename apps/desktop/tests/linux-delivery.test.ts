@@ -367,28 +367,9 @@ test('a copy the user asks for while a restore reads the clipboard is kept', asy
   await delivery.deliver({ text: 'pasted' }, delivery.revision, 'if-paste-fails');
   holdReads = true;
   await reading;
-  assert.equal(await delivery.copyLast(), true);
+  const copied = delivery.copyLast();
   release();
-  await wait(5);
-  assert.equal(text, 'pasted');
-});
-
-test('a copy the user asks for while a restore writes the clipboard is kept', async () => {
-  let text = 'previous clipboard';
-  let entered: () => void = () => {};
-  const writing = new Promise<void>(resolve => { entered = resolve; });
-  const delivery = new TranscriptDelivery({
-    writeText(value) { text = value; }, readText() { return text; },
-    save() {
-      const saved = text;
-      return async () => { entered(); await wait(20); text = saved; };
-    },
-  }, async () => async () => true, 0);
-  await delivery.begin();
-  await delivery.deliver({ text: 'pasted' }, delivery.revision, 'if-paste-fails');
-  await writing;
-  assert.equal(await delivery.copyLast(), true);
-  await wait(30);
+  assert.equal(await copied, true);
   assert.equal(text, 'pasted');
 });
 
@@ -463,6 +444,57 @@ test('never: quitting during a slow restore waits until the earlier contents are
   await delivery.restoreNow();
   assert.equal(clipboard.text, 'previous clipboard');
   assert.deepEqual(await pending, { text: 'held', delivery: 'not-copied' });
+});
+
+/** Copies while a delivery saves the clipboard slowly, and returns what the clipboard holds after the restore delay. */
+async function copyDuringSlowSave(copy: (delivery: TranscriptDelivery) => Promise<boolean>) {
+  let text = 'previous clipboard';
+  let entered: () => void = () => {};
+  const saving = new Promise<void>(resolve => { entered = resolve; });
+  const delivery = new TranscriptDelivery({
+    writeText(value) { text = value; }, readText() { return text; },
+    async save() { const saved = text; entered(); await wait(10); return () => { text = saved; }; },
+  }, async () => async () => true, 0);
+  await delivery.begin();
+  const pending = delivery.deliver({ text: 'transcript' }, delivery.revision, 'if-paste-fails');
+  await saving;
+  assert.equal(await copy(delivery), true);
+  assert.deepEqual(await pending, { text: 'transcript', delivery: 'pasted' });
+  await wait(5);
+  return text;
+}
+
+test('a copy the user asks for while a delivery saves the clipboard wins over the delivery and its restore', async () => {
+  assert.equal(await copyDuringSlowSave(delivery => delivery.copy('earlier entry')), 'earlier entry');
+  assert.equal(await copyDuringSlowSave(delivery => delivery.copyLast()), 'transcript');
+});
+
+test('never: a failed paste whose restore fails reports the transcript as copied', async () => {
+  let text = 'previous clipboard';
+  const delivery = new TranscriptDelivery({
+    writeText(value) { text = value; }, readText() { return text; },
+    save() { return async () => { throw new Error('restore failed'); }; },
+  }, async () => async () => false, 0);
+  await delivery.begin();
+  assert.deepEqual(await delivery.deliver({ text: 'held' }, delivery.revision, 'never'), { text: 'held', delivery: 'copied' });
+  assert.equal(text, 'held');
+});
+
+test('quitting during a paste gives the clipboard back after the cancelled delivery ends', async () => {
+  let text = 'previous clipboard';
+  let entered: () => void = () => {};
+  const pasting = new Promise<void>(resolve => { entered = resolve; });
+  const delivery = new TranscriptDelivery({
+    writeText(value) { text = value; }, readText() { return text; },
+    save() { const saved = text; return () => { text = saved; }; },
+  }, async () => async () => { entered(); await wait(10); return true; });
+  await delivery.begin();
+  const pending = delivery.deliver({ text: 'pasted' }, delivery.revision, 'if-paste-fails');
+  await pasting;
+  delivery.cancel();
+  await delivery.restoreNow();
+  assert.equal(text, 'previous clipboard');
+  assert.deepEqual(await pending, { cancelled: true });
 });
 
 test('clearing history also clears Copy last', async () => {
