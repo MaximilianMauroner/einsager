@@ -48,7 +48,8 @@ function isEntry(value: unknown): value is HistoryEntry {
   if (typeof value !== 'object' || value === null) return false;
   const entry: Partial<Record<keyof HistoryEntry, unknown>> = value;
   return typeof entry.id === 'string' && typeof entry.text === 'string'
-    && Number.isFinite(entry.at) && Number.isFinite(entry.seconds)
+    // The panel formats `at` as a date, which throws outside the Date range.
+    && typeof entry.at === 'number' && Number.isFinite(new Date(entry.at).getTime()) && Number.isFinite(entry.seconds)
     && Array.isArray(entry.voiceprint) && entry.voiceprint.every(level => typeof level === 'number' && level >= 0 && level <= 1);
 }
 

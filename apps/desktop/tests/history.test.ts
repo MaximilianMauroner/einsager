@@ -43,11 +43,13 @@ test('delete and clear also survive a restart', () => withFile(async file => {
 
 test('history keeps the newest entries and skips damaged ones', () => withFile(async file => {
   const stored = Array.from({ length: HISTORY_LIMIT + 2 }, (_, index) => ({ id: String(index), text: `entry ${index}`, at: index, seconds: 1, voiceprint: [0.5] }));
-  await writeFile(file, JSON.stringify([{ id: 'damaged', text: 7 }, ...stored]));
+  const outOfRange = { id: 'out of range', text: 'bad date', at: 9e15, seconds: 1, voiceprint: [] };
+  await writeFile(file, JSON.stringify([{ id: 'damaged', text: 7 }, ...stored, outOfRange]));
   const history = new TranscriptHistory(file);
   await history.load();
   assert.equal(history.entries.length, HISTORY_LIMIT);
   assert.equal(history.entries[0].text, 'entry 2');
+  assert.ok(history.entries.every(entry => entry.id !== outOfRange.id), 'A time outside the Date range is damaged');
   await history.add('newest', { seconds: 1, voiceprint: [] });
   assert.equal(history.entries.length, HISTORY_LIMIT);
   assert.equal(history.entries.at(-1)?.text, 'newest');
