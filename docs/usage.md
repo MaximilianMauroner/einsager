@@ -67,7 +67,9 @@ transcript**, **History and settings…**, and **Quit einsager**.
 - **Dock the pill**: bottom, top, left, or right. You can also drag the pill to
   an edge. Wayland does not allow this.
 - **Codex login folder**: see [Codex login](#codex-login). **Reset to
-  default** removes a folder that you chose.
+  default** selects your normal `.codex` folder, including when the app inherited
+  a different `CODEX_HOME`. It is disabled only while that normal folder is
+  already selected. The reset persists across app restarts.
 
 ## Codex login
 
@@ -114,6 +116,28 @@ with an Apple Developer ID, so macOS treats each version as a new app. To fix
 this, select einsager in the Accessibility list and remove it with the minus
 button. Then add `/Applications/einsager.app` with the plus button and turn it
 on. Turning the switch off and on again is not enough.
+
+### Local macOS updates
+
+When building on your Mac, use `pnpm install:macos`. It builds and installs the
+app at `/Applications/einsager.app` and opens it. The first run creates a local
+code-signing certificate. Later builds, including `pnpm package`, reuse it for
+the app and its keyboard helper. Their signing identities stay the same even
+when their code changes, so macOS can keep the permissions you approved.
+
+After switching from an ad-hoc signed build, remove the old Accessibility
+entry and add `/Applications/einsager.app` once. Allow the microphone again if
+macOS asks. This approval cannot carry over from the old signing identity.
+
+Keep `~/Library/Application Support/einsager-signing`. It holds the private
+signing key in a dedicated keychain and its unlock password in a file readable
+only by your user. Deleting this folder loses the signing identity and requires
+new approvals. The certificate lasts ten years. A new certificate or a downloaded
+release uses a different identity and also requires new approvals.
+
+The local certificate does not make public releases Apple-signed or notarized.
+The installer replaces the app at the same path and does not keep renamed
+`.app` backups in `/Applications`, where they can confuse macOS's app name.
 
 ## Data and privacy
 

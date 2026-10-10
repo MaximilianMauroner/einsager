@@ -111,6 +111,12 @@ pnpm package    # runnable app in release/einsager-<os>-<cpu>/
 
 `pnpm package` builds for the current system and CPU only.
 
+On macOS, use `pnpm install:macos` to build, install in `/Applications`, and
+open the app. This creates a local signing certificate once and reuses it for
+later builds, so macOS can retain your permissions across local updates.
+The first switch from a release build needs one new permission approval.
+See [local updates](docs/usage.md#local-macos-updates).
+
 ## Development
 
 ```sh

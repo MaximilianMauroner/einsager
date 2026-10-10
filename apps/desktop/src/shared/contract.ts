@@ -88,8 +88,8 @@ export interface PanelState {
   settings: PanelSettings;
   /** The Codex folder the helper reads, shortened with ~ for display. */
   codexFolder: string;
-  /** True when the user chose the folder, so resetting returns to the default lookup. */
-  customCodexFolder: boolean;
+  /** True when the effective login folder differs from the OS user's .codex folder. */
+  canResetCodexFolder: boolean;
   /** The connected audio inputs, without Chromium's "default" entry, which Settings shows as System default. */
   microphones: Microphone[];
   /** False when another app holds the Electron shortcut in settings. */

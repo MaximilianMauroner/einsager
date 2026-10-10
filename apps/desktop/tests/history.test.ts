@@ -4,7 +4,7 @@ import { chmod, mkdtemp, readdir, readFile, rm, stat, writeFile } from 'node:fs/
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { describeRecording, HISTORY_LIMIT, TranscriptHistory } from '../src/main/history.ts';
-import { defaultSettings, mergeSettings, parseStoredSettings } from '../src/main/settings.ts';
+import { codexLoginFolders, defaultSettings, mergeSettings, parseStoredSettings } from '../src/main/settings.ts';
 import { encodeWav } from '../src/renderer/audio.ts';
 
 async function withFile(run: (file: string) => Promise<void>) {
@@ -115,4 +115,16 @@ test('stored settings keep valid fields; the panel cannot change the Codex folde
   assert.equal(parseStoredSettings({ edge: 'top' }).shortcut, defaultSettings.shortcut, 'Earlier settings files keep the default shortcut');
   assert.equal(parseStoredSettings({ shortcut: 'Shift+A' }).shortcut, defaultSettings.shortcut, 'A shortcut that takes over typing is ignored');
   assert.equal(mergeSettings(defaultSettings, { shortcut: 'Ctrl+Shift+D' }).shortcut, 'Ctrl+Shift+D');
+});
+
+test('a saved reset keeps the normal Codex folder even when the app inherits another login folder', () => {
+  const userHome = join(tmpdir(), 'codex-user');
+  const inheritedHome = join(tmpdir(), 'inherited-codex');
+  const initial = codexLoginFolders(defaultSettings, inheritedHome, userHome);
+  assert.equal(initial.folder, inheritedHome);
+  const saved = JSON.stringify({ ...defaultSettings, codexHome: initial.defaultFolder });
+  const restarted = codexLoginFolders(parseStoredSettings(JSON.parse(saved)), inheritedHome, userHome);
+  assert.equal(restarted.folder, join(userHome, '.codex'));
+  assert.equal(restarted.folder, restarted.defaultFolder);
+  assert.equal(codexLoginFolders(defaultSettings, '', userHome).folder, restarted.defaultFolder);
 });

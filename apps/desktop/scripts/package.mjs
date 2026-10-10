@@ -4,6 +4,7 @@ import { access, copyFile, cp, mkdtemp, readFile, rm, writeFile } from 'node:fs/
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { platformFor } from '../src/main/platform.ts';
+import { signMacApp } from './macos-signing.mjs';
 
 const platform = platformFor(process.platform);
 const helpers = [platform.helperExecutable, platform.keyboardHelper].filter(name => name !== undefined).map(name => resolve('target/release', name));
@@ -29,10 +30,9 @@ try {
     appBundleId: 'local.max.einsager.desktop',
     extendInfo: { NSMicrophoneUsageDescription: 'Record speech and send it to ChatGPT for transcription using your Codex login.' },
   });
-  // Packaging edits Info.plist, which invalidates Electron's signature. A fresh ad-hoc signature
-  // lets macOS offer "Open Anyway" for a downloaded copy instead of calling it damaged.
+  // Packaging edits Info.plist, so the finished bundle needs a fresh signature.
   if (process.platform === 'darwin') {
-    execFileSync('codesign', ['--force', '--deep', '--sign', '-', join(outputs[0], 'einsager.app')], { stdio: 'inherit' });
+    await signMacApp(join(outputs[0], 'einsager.app'));
   }
   console.log(outputs);
 } finally {

@@ -11,7 +11,7 @@ const mac = navigator.platform.startsWith('Mac');
 const initial: PanelState = {
   status: { state: 'idle' }, history: [],
   settings: { edge: 'bottom', clipboard: 'if-paste-fails', keepHistory: true, showPill: true, shortcut: DEFAULT_SHORTCUT, microphone: '' },
-  codexFolder: '~/.codex', customCodexFolder: false, microphones: [], shortcutAvailable: true, canPaste: false, canPositionWindow: true,
+  codexFolder: '~/.codex', canResetCodexFolder: false, microphones: [], shortcutAvailable: true, canPaste: false, canPositionWindow: true,
 };
 const clipboardChoices: { mode: ClipboardMode; label: string; detail: string }[] = [
   { mode: 'always', label: 'Always', detail: 'The transcript stays on the clipboard.' },
@@ -247,7 +247,7 @@ export function Panel() {
         </label>
         <div className="group-head">
           <span>Codex login folder</span>
-          <button className="quiet" disabled={!state.customCodexFolder} onClick={() => void api?.resetCodexHome()}>Reset to default</button>
+          <button className="quiet" disabled={!state.canResetCodexFolder} onClick={() => void api?.resetCodexHome()}>Reset to default</button>
         </div>
         <button className="row" aria-label={`Change the Codex login folder, now ${state.codexFolder}`} onClick={() => void api?.chooseCodexHome()}>
           <span className="path">{state.codexFolder}</span><Icon name="right" />

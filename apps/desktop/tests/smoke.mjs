@@ -2,8 +2,8 @@
 // This uses Chromium's fake microphone and an empty Codex folder, never a real login.
 import { _electron as electron, expect } from '@playwright/test';
 import assert from 'node:assert/strict';
-import { mkdtemp, readFile, rm, mkdir, writeFile } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
+import { mkdtemp, readFile, rm, mkdir } from 'node:fs/promises';
+import { homedir, tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 
 const packaged = process.argv.includes('--packaged');
@@ -19,9 +19,8 @@ const directory = await mkdtemp(join(tmpdir(), 'einsager-smoke-'));
 const profile = join(directory, 'profile');
 const codex = join(directory, 'empty-codex');
 await mkdir(codex);
-// A chosen folder that matches CODEX_HOME, so the panel can reset it without changing which login the helper reads.
+// Inherited CODEX_HOME must also enable Reset, even without a folder chosen in settings.
 await mkdir(profile);
-await writeFile(join(profile, 'settings.json'), JSON.stringify({ codexHome: codex }));
 await mkdir('.agents/artifacts', { recursive: true });
 let application;
 try {
@@ -90,12 +89,25 @@ try {
   await inPanel(`[...document.querySelectorAll('.choice')].find(choice => choice.textContent.startsWith('Always')).click()`);
   await clickInPanel('[role="switch"]');
   await expect.poll(async () => JSON.parse(await readFile(join(profile, 'settings.json'), 'utf8')))
-    .toMatchObject({ edge: 'bottom', clipboard: 'always', keepHistory: false, codexHome: codex });
+    .toMatchObject({ edge: 'bottom', clipboard: 'always', keepHistory: false });
   const resetCodexFolder = `[...document.querySelectorAll('button')].find(button => button.textContent === 'Reset to default')`;
-  assert.equal(await inPanel(`${resetCodexFolder}.disabled`), false, 'A chosen Codex folder can be reset');
+  assert.equal(await inPanel(`${resetCodexFolder}.disabled`), false, 'An inherited Codex folder can be reset');
   await inPanel(`${resetCodexFolder}.click()`);
-  await expect.poll(async () => 'codexHome' in JSON.parse(await readFile(join(profile, 'settings.json'), 'utf8'))).toBe(false);
+  await expect.poll(async () => JSON.parse(await readFile(join(profile, 'settings.json'), 'utf8')).codexHome)
+    .toBe(join(homedir(), '.codex'));
+  await expect.poll(() => inPanel('document.querySelector(".path").textContent')).toBe('~/.codex');
   await expect.poll(() => inPanel(`${resetCodexFolder}.disabled`)).toBe(true);
+  // Restore the empty test login through the chooser before further recording checks.
+  await application.evaluate(({ dialog }, codex) => {
+    const choose = dialog.showOpenDialog;
+    dialog.showOpenDialog = async () => {
+      dialog.showOpenDialog = choose;
+      return { canceled: false, filePaths: [codex] };
+    };
+  }, codex);
+  await clickInPanel('[aria-label^="Change the Codex login folder"]');
+  await expect.poll(async () => JSON.parse(await readFile(join(profile, 'settings.json'), 'utf8')).codexHome).toBe(codex);
+  await expect.poll(() => inPanel(`${resetCodexFolder}.disabled`)).toBe(false);
   // The pill lists Chromium's fake inputs for Settings. Choose the last one, which is not the default.
   const microphoneSelect = `[...document.querySelectorAll('label.row')].find(row => row.textContent.startsWith('Microphone')).querySelector('select')`;
   await expect.poll(() => inPanel(`${microphoneSelect}.options.length`)).toBeGreaterThan(1);

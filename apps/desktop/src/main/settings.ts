@@ -1,9 +1,17 @@
 import type { ClipboardMode, DockEdge, Settings } from '../shared/contract.ts';
 import { DEFAULT_SHORTCUT, isShortcut } from '../shared/shortcut.ts';
+import { resolve } from 'node:path';
 
 const edges: readonly DockEdge[] = ['bottom', 'top', 'left', 'right'];
 const clipboardModes: readonly ClipboardMode[] = ['always', 'if-paste-fails', 'never'];
 export const defaultSettings: Settings = { edge: 'bottom', clipboard: 'if-paste-fails', keepHistory: true, showPill: true, shortcut: DEFAULT_SHORTCUT, microphone: '' };
+
+/** Startup follows CODEX_HOME; Reset explicitly selects the OS user's normal Codex folder. */
+export function codexLoginFolders(settings: Settings, inheritedHome: string | undefined, userHome: string) {
+  const defaultFolder = resolve(userHome, '.codex');
+  const folder = resolve(settings.codexHome || inheritedHome || defaultFolder);
+  return { folder, defaultFolder };
+}
 
 const isEdge = (value: unknown): value is DockEdge => edges.some(edge => edge === value);
 const isClipboardMode = (value: unknown): value is ClipboardMode => clipboardModes.some(mode => mode === value);

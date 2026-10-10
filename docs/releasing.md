@@ -71,3 +71,8 @@ and they are not notarized. `pnpm package` gives the macOS app an ad-hoc
 signature, so macOS offers **Open Anyway** for a download instead of calling it
 damaged. The [README](../README.md#install) explains the first start on each
 system.
+
+Local builds use the persistent certificate set up by `pnpm install:macos` when
+it is present. GitHub runners have no local certificate and keep the ad-hoc
+release signature. See [local updates](usage.md#local-macos-updates) for the
+certificate's storage and permission behavior.

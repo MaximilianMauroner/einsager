@@ -11,7 +11,7 @@ import { TranscriptDelivery } from './delivery';
 import { systemClipboard } from './system-clipboard';
 import { LinuxDesktop } from './linux/desktop';
 import { describeRecording, TranscriptHistory, type Recording } from './history';
-import { defaultSettings, mergeSettings, parseStoredSettings } from './settings';
+import { codexLoginFolders, defaultSettings, mergeSettings, parseStoredSettings } from './settings';
 import { TrayPanel } from './panel';
 import { PrivateFile } from './private-file';
 import { MacKeyboard } from './keyboard';
@@ -82,8 +82,8 @@ async function setCodexHome(codexHome: string | undefined) {
 }
 
 /**
- * Asks for missing macOS access at launch, so it is not first noticed when a recording fails. Each local build has a
- * new ad-hoc signature, so after an update macOS can treat einsager as a new app. Accessibility then often shows
+ * Asks for missing macOS access at launch, so it is not first noticed when a recording fails. Ad-hoc signed builds
+ * can be treated as a new app after an update. Accessibility then often shows
  * einsager as allowed while it rejects the new build, so the alert says how to replace that entry.
  */
 async function askForAccess(keyboardStarted: Promise<void> | undefined) {
@@ -118,7 +118,7 @@ const helperFile = (name: string) => app.isPackaged ? join(process.resourcesPath
 function createTranscription() {
   // Keep credentials inside the helper. The renderer never reads the login or receives tokens.
   transcription = new TranscriptionSession({ file: helperFile(platform.helperExecutable) },
-    { ...process.env, ...(settings.codexHome ? { CODEX_HOME: settings.codexHome } : {}) });
+    { ...process.env, CODEX_HOME: codexLoginFolders(settings, process.env.CODEX_HOME, homedir()).folder });
 }
 
 /**
@@ -151,17 +151,14 @@ function updatePill() {
   else window.hide();
 }
 
-function codexFolder() {
-  const home = homedir();
-  const folder = settings.codexHome || process.env.CODEX_HOME || join(home, '.codex');
-  return folder === home || folder.startsWith(home + sep) ? '~' + folder.slice(home.length) : folder;
-}
-
 function panelState(): PanelState {
+  const home = homedir();
+  const { folder, defaultFolder } = codexLoginFolders(settings, process.env.CODEX_HOME, home);
   const { codexHome: _, ...editable } = settings;
   return {
     status, history: [...history.entries], settings: editable,
-    codexFolder: codexFolder(), customCodexFolder: Boolean(settings.codexHome), microphones,
+    codexFolder: folder === home || folder.startsWith(home + sep) ? '~' + folder.slice(home.length) : folder,
+    canResetCodexFolder: folder !== defaultFolder, microphones,
     shortcutAvailable, canPaste: linux?.canPaste ?? keyboardState?.trusted ?? false,
     canPositionWindow: linux?.canPositionWindow !== false, desktopNotice: linux?.notice, keyboard: keyboardState,
   };
@@ -366,7 +363,10 @@ function installIPC() {
     applyShortcuts();
   });
   ipcMain.handle('panel:codex', async event => { fromPanel(event); await chooseCodexHome(); });
-  ipcMain.handle('panel:codex-reset', async event => { fromPanel(event); if (settings.codexHome) await setCodexHome(undefined); });
+  ipcMain.handle('panel:codex-reset', async event => {
+    fromPanel(event);
+    await setCodexHome(codexLoginFolders(settings, process.env.CODEX_HOME, homedir()).defaultFolder);
+  });
   ipcMain.on('panel:resize', (event, height: unknown) => {
     fromPanel(event);
     if (typeof height === 'number' && Number.isFinite(height)) panel.resize(height);
