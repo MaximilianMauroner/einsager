@@ -24,6 +24,8 @@ export class TranscriptDelivery {
   private pendingRestore?: { timer: ReturnType<typeof setTimeout>; run: () => Promise<void> };
   /** Counts explicit copies, so a restore that is already reading the clipboard cannot undo one. */
   private copies = 0;
+  /** The restore write in progress. An explicit copy waits for it, so the copy lands last. */
+  private restoring?: Promise<void>;
 
   constructor(
     clipboard: Clipboard,
@@ -56,6 +58,7 @@ export class TranscriptDelivery {
   async copy(text: string) {
     this.copies++;
     this.dropRestore();
+    await this.restoring;
     return this.write(text);
   }
 
@@ -134,7 +137,10 @@ export class TranscriptDelivery {
   /** Puts the earlier contents back unless something else replaced the transcript meanwhile. */
   private async restoreIfUnchanged(text: string, restore: () => MaybePromise<void>) {
     const copies = this.copies;
-    try { if (await this.clipboard.readText() === text && copies === this.copies) await restore(); }
-    catch { /* The transcript stays copied, which is still recoverable. */ }
+    try {
+      if (await this.clipboard.readText() !== text || copies !== this.copies) return;
+      this.restoring = Promise.resolve(restore()).catch(() => {});
+      await this.restoring;
+    } catch { /* The transcript stays copied, which is still recoverable. */ }
   }
 }

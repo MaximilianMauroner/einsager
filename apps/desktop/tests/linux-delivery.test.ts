@@ -373,6 +373,25 @@ test('a copy the user asks for while a restore reads the clipboard is kept', asy
   assert.equal(text, 'pasted');
 });
 
+test('a copy the user asks for while a restore writes the clipboard is kept', async () => {
+  let text = 'previous clipboard';
+  let entered: () => void = () => {};
+  const writing = new Promise<void>(resolve => { entered = resolve; });
+  const delivery = new TranscriptDelivery({
+    writeText(value) { text = value; }, readText() { return text; },
+    save() {
+      const saved = text;
+      return async () => { entered(); await wait(20); text = saved; };
+    },
+  }, async () => async () => true, 0);
+  await delivery.begin();
+  await delivery.deliver({ text: 'pasted' }, delivery.revision, 'if-paste-fails');
+  await writing;
+  assert.equal(await delivery.copyLast(), true);
+  await wait(30);
+  assert.equal(text, 'pasted');
+});
+
 test('clearing history also clears Copy last', async () => {
   const delivery = new TranscriptDelivery({ writeText() {}, readText() { return ''; }, save: unused });
   await delivery.begin();
