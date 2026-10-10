@@ -392,6 +392,79 @@ test('a copy the user asks for while a restore writes the clipboard is kept', as
   assert.equal(text, 'pasted');
 });
 
+test('a new delivery waits for a restore whose clipboard read is slow', async () => {
+  let text = 'previous clipboard';
+  let holdNextRead = false;
+  let release: () => void = () => {};
+  let entered: () => void = () => {};
+  const reading = new Promise<void>(resolve => { entered = resolve; });
+  const pastes: string[] = [];
+  const delivery = new TranscriptDelivery({
+    writeText(value) { text = value; },
+    readText() {
+      if (!holdNextRead) return text;
+      holdNextRead = false;
+      const value = text;
+      entered();
+      return new Promise<string>(resolve => { release = () => resolve(value); });
+    },
+    save() { const saved = text; return () => { text = saved; }; },
+  }, async () => async ready => {
+    await wait(10);
+    if (!await ready()) return false;
+    pastes.push(text);
+    return true;
+  }, 0);
+  await delivery.begin();
+  await delivery.deliver({ text: 'first' }, delivery.revision, 'if-paste-fails');
+  holdNextRead = true;
+  await reading;
+  await delivery.begin();
+  const second = delivery.deliver({ text: 'second' }, delivery.revision, 'if-paste-fails');
+  await wait(2);
+  release();
+  assert.deepEqual(await second, { text: 'second', delivery: 'pasted' });
+  assert.deepEqual(pastes, ['first', 'second']);
+  await wait(5);
+  assert.equal(text, 'previous clipboard');
+});
+
+/** A clipboard whose restore writes slowly, and a promise that settles when that write starts. */
+function slowRestore() {
+  const clipboard = { text: 'previous clipboard' };
+  let entered: () => void = () => {};
+  const writing = new Promise<void>(resolve => { entered = resolve; });
+  return {
+    clipboard, writing, fake: {
+      writeText(value: string) { clipboard.text = value; }, readText() { return clipboard.text; },
+      save() { const saved = clipboard.text; return async () => { entered(); await wait(20); clipboard.text = saved; }; },
+    },
+  };
+}
+
+test('quitting during a slow restore write waits until the earlier contents are back', async () => {
+  const { clipboard, writing, fake } = slowRestore();
+  const delivery = new TranscriptDelivery(fake, async () => async () => true, 0);
+  await delivery.begin();
+  await delivery.deliver({ text: 'pasted' }, delivery.revision, 'if-paste-fails');
+  await writing;
+  delivery.cancel();
+  await delivery.restoreNow();
+  assert.equal(clipboard.text, 'previous clipboard');
+});
+
+test('never: quitting during a slow restore waits until the earlier contents are back', async () => {
+  const { clipboard, writing, fake } = slowRestore();
+  const delivery = new TranscriptDelivery(fake, async () => async () => false, 0);
+  await delivery.begin();
+  const pending = delivery.deliver({ text: 'held' }, delivery.revision, 'never');
+  await writing;
+  delivery.cancel();
+  await delivery.restoreNow();
+  assert.equal(clipboard.text, 'previous clipboard');
+  assert.deepEqual(await pending, { text: 'held', delivery: 'not-copied' });
+});
+
 test('clearing history also clears Copy last', async () => {
   const delivery = new TranscriptDelivery({ writeText() {}, readText() { return ''; }, save: unused });
   await delivery.begin();

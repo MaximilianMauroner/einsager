@@ -24,7 +24,9 @@ export class TranscriptDelivery {
   private pendingRestore?: { timer: ReturnType<typeof setTimeout>; run: () => Promise<void> };
   /** Counts explicit copies, so a restore that is already reading the clipboard cannot undo one. */
   private copies = 0;
-  /** The restore write in progress. An explicit copy waits for it, so the copy lands last. */
+  /** The restore in progress, from its clipboard read through its write. Delivery and quit wait for it. */
+  private running?: Promise<void>;
+  /** The restore write in progress. An explicit copy waits only for this, so the copy lands last. */
   private restoring?: Promise<void>;
 
   constructor(
@@ -64,8 +66,11 @@ export class TranscriptDelivery {
 
   async copyLast() { return this.text ? this.copy(this.text) : false; }
 
-  /** Runs a pending restore without waiting for its delay, for example before quit. */
-  async restoreNow() { await this.pendingRestore?.run(); }
+  /** Runs a pending restore now and waits for one already running, for example before quit. */
+  async restoreNow() {
+    await this.pendingRestore?.run();
+    await this.running;
+  }
 
   /** Forgets the last transcript after history deletes it, so Copy last cannot bring it back. */
   forget(text?: string) {
@@ -134,13 +139,17 @@ export class TranscriptDelivery {
     this.pendingRestore = undefined;
   }
 
-  /** Puts the earlier contents back unless something else replaced the transcript meanwhile. */
-  private async restoreIfUnchanged(text: string, restore: () => MaybePromise<void>) {
+  /** Puts the earlier contents back unless something else replaced the transcript meanwhile. Never rejects. */
+  private restoreIfUnchanged(text: string, restore: () => MaybePromise<void>) {
     const copies = this.copies;
-    try {
-      if (await this.clipboard.readText() !== text || copies !== this.copies) return;
-      this.restoring = Promise.resolve(restore()).catch(() => {});
-      await this.restoring;
-    } catch { /* The transcript stays copied, which is still recoverable. */ }
+    const run = async () => {
+      try {
+        if (await this.clipboard.readText() !== text || copies !== this.copies) return;
+        this.restoring = Promise.resolve(restore()).catch(() => {});
+        await this.restoring;
+      } catch { /* The transcript stays copied, which is still recoverable. */ }
+    };
+    this.running = run();
+    return this.running;
   }
 }
