@@ -33,12 +33,14 @@ export class LinuxDesktop {
     catch { /* Recording and clipboard delivery do not require xdotool. */ }
   }
 
+  get canPaste() { return this.session === 'x11' && this.hasXdotool; }
+
   get notice() {
     if (this.session === 'wayland') return 'Wayland: paste by hand; your desktop controls pill placement.';
     if (this.session === 'headless') return 'No desktop display. Start einsager in your desktop session.';
     return this.hasXdotool
-      ? 'Automatic paste when the same X11 window keeps focus. Text also stays copied.'
-      : 'Install xdotool for automatic paste. Text is copied for manual paste.';
+      ? 'Automatic paste when the same X11 window keeps focus. Copy last recovers the text.'
+      : 'Install xdotool for automatic paste.';
   }
 
   async captureTarget(signal: AbortSignal): Promise<PasteTarget | undefined> {
@@ -55,7 +57,8 @@ export class LinuxDesktop {
         const owner = await this.command(['getwindowpid', target], signal);
         if (owner !== pid || !await ready() || signal.aborted) return false;
         // Explicit targeting avoids sending Ctrl+V to a new window during a focus race.
-        // Some clients reject these XSendEvent keys; preserve the transcript for manual paste.
+        // Some clients reject these XSendEvent keys. In the default clipboard mode, a sent paste
+        // still gives the earlier clipboard back after the restore delay; Copy last recovers the text.
         await this.command(['key', '--window', target, '--delay', '0', 'ctrl+v'], signal);
         return true;
       };

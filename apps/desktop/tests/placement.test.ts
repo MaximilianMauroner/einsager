@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { dockFrame, nearestEdge } from '../src/main/placement.ts';
+import { dockFrame, nearestEdge, panelFrame } from '../src/main/placement.ts';
 
 test('all four docks remain within a negative-origin display', () => {
   const area = { x: -1600, y: 90, width: 1600, height: 850 };
@@ -23,4 +23,20 @@ test('side-docked pill stays centered as hover, recovery, and recording labels e
       assert.equal(frame.y + height - pillHeight / 2, area.y + area.height / 2);
     }
   }
+});
+
+test('the tray panel opens beside its icon, toward the screen, and stays on screen', () => {
+  const size = { width: 340, height: 520 };
+  // macOS: menu-bar icon near the right edge, above the work area.
+  const mac = { x: 0, y: 25, width: 1512, height: 920 };
+  const below = panelFrame(size, { x: 1400, y: 0, width: 24, height: 24 }, mac);
+  assert.deepEqual(below, { x: 1512 - 340, y: 30, width: 340, height: 520 });
+  // Windows: notification-area icon in a bottom taskbar, below the work area.
+  const windows = { x: 0, y: 0, width: 1920, height: 1040 };
+  const above = panelFrame(size, { x: 1700, y: 1048, width: 24, height: 24 }, windows);
+  assert.deepEqual(above, { x: 1712 - 170, y: 1040 - 520, width: 340, height: 520 });
+  // Linux trays that report no bounds open the panel in the top-right corner.
+  assert.deepEqual(panelFrame(size, { x: 0, y: 0, width: 0, height: 0 }, windows), { x: 1920 - 340 - 12, y: 12, width: 340, height: 520 });
+  // A short display limits the panel's height instead of pushing it off screen.
+  assert.equal(panelFrame(size, { x: 10, y: 0, width: 24, height: 24 }, { x: 0, y: 25, width: 800, height: 400 }).height, 400);
 });

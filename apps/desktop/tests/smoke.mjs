@@ -2,7 +2,7 @@
 // This uses Chromium's fake microphone and an empty Codex folder, never a real login.
 import { _electron as electron, expect } from '@playwright/test';
 import assert from 'node:assert/strict';
-import { mkdtemp, rm, mkdir } from 'node:fs/promises';
+import { mkdtemp, readFile, rm, mkdir } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 
@@ -36,7 +36,7 @@ try {
   await page.getByRole('button', { name: 'Start hands-free dictation' }).click();
   await page.getByRole('button', { name: 'Finish dictation' }).waitFor();
   await application.evaluate(({ BrowserWindow }) => {
-    BrowserWindow.getAllWindows()[0].webContents.send('action', 'copy');
+    BrowserWindow.getAllWindows().find(window => window.webContents.getURL().endsWith('index.html')).webContents.send('action', 'copy');
   });
   await page.waitForTimeout(100);
   assert.equal(await page.getByRole('button', { name: 'Finish dictation' }).count(), 1,
@@ -45,13 +45,23 @@ try {
   await page.screenshot({ path: `.agents/artifacts/${evidence}-recording.png`, omitBackground: true });
   await page.getByRole('button', { name: 'Finish dictation' }).click();
   await page.getByText('Cannot read the file-based Codex login.', { exact: false }).waitFor();
+  // The tray panel follows the pill's session, so a failed recording can be retried there too.
+  // Playwright does not list the packaged app's hidden panel page, so both runs drive it from the main process.
+  const inPanel = script => application.evaluate(({ BrowserWindow }, script) => BrowserWindow.getAllWindows()
+    .find(window => window.webContents.getURL().endsWith('panel.html')).webContents.executeJavaScript(script), script);
+  const panelText = () => inPanel('document.body.innerText');
+  const clickInPanel = selector => inPanel(`document.querySelector(${JSON.stringify(selector)}).click()`);
+  const panelVisible = () => application.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()
+    .find(window => window.webContents.getURL().endsWith('panel.html')).isVisible());
+  await expect.poll(panelText).toContain('Cannot read the file-based Codex login.');
+  assert.equal(await inPanel('document.querySelectorAll(".pending .action").length'), 2, 'A retryable failure offers Retry and Discard');
   await page.getByRole('button', { name: 'Retry', exact: true }).click();
   await page.getByText('Cannot read the file-based Codex login.', { exact: false }).waitFor();
   // Simulate an earlier transcript while retaining the current failed recording.
   await application.evaluate(({ ipcMain, clipboard, BrowserWindow }) => {
     ipcMain.removeHandler('copy-last');
     ipcMain.handle('copy-last', () => { clipboard.writeText('Previous transcript'); return true; });
-    BrowserWindow.getAllWindows()[0].webContents.send('action', 'copy');
+    BrowserWindow.getAllWindows().find(window => window.webContents.getURL().endsWith('index.html')).webContents.send('action', 'copy');
   });
   await expect.poll(() => application.evaluate(({ clipboard }) => clipboard.readText())).toBe('Previous transcript');
   await page.waitForTimeout(100);
@@ -67,6 +77,26 @@ try {
   await page.getByRole('button', { name: 'Retry', exact: true }).click();
   await page.getByText('Cannot save recording.', { exact: false }).waitFor();
   await expect(page.getByRole('button', { name: 'Retry', exact: true })).toBeDisabled();
+  await page.getByRole('button', { name: 'Cancel dictation' }).click();
+  await page.getByRole('button', { name: 'Start hands-free dictation' }).waitFor();
+
+  // Tray panel: empty history, settings that persist, and starting dictation from the panel.
+  await expect.poll(panelText).toContain('What you say appears here.');
+  await clickInPanel('[aria-label="Settings"]');
+  await expect.poll(panelText).toContain('Clipboard after dictation');
+  await inPanel(`[...document.querySelectorAll('.choice')].find(choice => choice.textContent.startsWith('Always')).click()`);
+  await clickInPanel('[role="switch"]');
+  await expect.poll(async () => JSON.parse(await readFile(join(profile, 'settings.json'), 'utf8')))
+    .toMatchObject({ edge: 'bottom', clipboard: 'always', keepHistory: false });
+  await clickInPanel('.back');
+  await expect.poll(panelText).toContain('History is off.');
+  await application.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()
+    .find(window => window.webContents.getURL().endsWith('panel.html')).show());
+  await expect.poll(panelVisible).toBe(true);
+  await clickInPanel('[aria-label="Start dictation"]');
+  await page.getByRole('button', { name: 'Finish dictation' }).waitFor();
+  assert.equal(await panelVisible(), false, 'Starting from the panel hides it, so focus returns to the editor');
+  assert.match(await panelText(), /Listening/);
   await page.getByRole('button', { name: 'Cancel dictation' }).click();
   await page.getByRole('button', { name: 'Start hands-free dictation' }).waitFor();
   const info = await page.evaluate(() => window.einsager.info());
@@ -105,7 +135,7 @@ try {
   await page.reload();
   await page.getByRole('button', { name: 'Start hands-free dictation' }).waitFor();
   await application.evaluate(({ BrowserWindow }) => {
-    BrowserWindow.getAllWindows()[0].webContents.send('action', 'toggle');
+    BrowserWindow.getAllWindows().find(window => window.webContents.getURL().endsWith('index.html')).webContents.send('action', 'toggle');
   });
   await page.getByRole('button', { name: 'Finish dictation' }).waitFor();
   assert.equal(await page.evaluate(() => window.testMicrophoneStream.getAudioTracks()[0].readyState), 'live');
@@ -123,11 +153,11 @@ try {
     // Resizing must keep labels visible even when the compositor owns placement.
     await expect.poll(async () => {
       const surface = await page.locator('.surface').boundingBox();
-      const bounds = await application.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].getBounds());
+      const bounds = await application.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows().find(window => window.webContents.getURL().endsWith('index.html')).getBounds());
       return Math.max(Math.abs(bounds.width - Math.ceil(surface.width)), Math.abs(bounds.height - Math.ceil(surface.height)));
     }).toBeLessThanOrEqual(1);
     await application.evaluate(({ BrowserWindow }) => {
-      const window = BrowserWindow.getAllWindows()[0];
+      const window = BrowserWindow.getAllWindows().find(window => window.webContents.getURL().endsWith('index.html'));
       globalThis.testBoundsCalls = 0;
       const original = window.setBounds.bind(window);
       window.setBounds = (...args) => { globalThis.testBoundsCalls++; return original(...args); };
@@ -139,7 +169,7 @@ try {
     await pill.dispatchEvent('mouseout', { relatedTarget: null });
     await page.locator('.pill.handle').waitFor();
     const shift = await application.evaluate(({ BrowserWindow, screen }, edge) => {
-      const bounds = BrowserWindow.getAllWindows()[0].getBounds();
+      const bounds = BrowserWindow.getAllWindows().find(window => window.webContents.getURL().endsWith('index.html')).getBounds();
       const area = screen.getDisplayMatching(bounds).workArea;
       const x = edge === 'left' ? area.x + 12 : area.x + area.width - bounds.width - 12;
       return { dx: x - bounds.x, dy: area.y + area.height / 2 - bounds.y };
@@ -150,13 +180,13 @@ try {
     await expect.poll(async () => {
       const surface = await page.locator('.surface').boundingBox();
       assert.ok(surface);
-      const bounds = await application.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].getBounds());
+      const bounds = await application.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows().find(window => window.webContents.getURL().endsWith('index.html')).getBounds());
       return Math.max(Math.abs(bounds.width - Math.ceil(surface.width)), Math.abs(bounds.height - Math.ceil(surface.height)));
     }).toBeLessThanOrEqual(1);
     const position = async () => {
       const rect = await pill.boundingBox();
       assert.ok(rect);
-      const bounds = await application.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].getBounds());
+      const bounds = await application.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows().find(window => window.webContents.getURL().endsWith('index.html')).getBounds());
       return {
         y: bounds.y + rect.y + rect.height / 2,
         x: bounds.x + rect.x + (edge === 'right' ? rect.width : 0),
@@ -171,7 +201,7 @@ try {
     await page.screenshot({ path: `.agents/artifacts/${evidence}-${edge}-hover.png`, omitBackground: true });
   }
   assert.deepEqual(errors, []);
-  console.log(`${evidence}: launch, recording, safe Copy/recovery, login error, Retry capability, delayed Mac info, cancellation, and ${waylandPolicy ? 'compositor-owned placement with working resize' : 'side docking'} passed. No request sent.`);
+  console.log(`${evidence}: launch, recording, safe Copy/recovery, login error, Retry capability, tray panel state and settings, delayed Mac info, cancellation, and ${waylandPolicy ? 'compositor-owned placement with working resize' : 'side docking'} passed. No request sent.`);
 } finally {
   await application?.close();
   await rm(directory, { recursive: true, force: true });

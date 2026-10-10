@@ -3,7 +3,10 @@ import { build as buildRenderer } from 'vite';
 import { copyFile } from 'node:fs/promises';
 
 await build({
-  entryPoints: { main: 'apps/desktop/src/main/index.ts', preload: 'apps/desktop/src/preload.ts' },
+  entryPoints: {
+    main: 'apps/desktop/src/main/index.ts', preload: 'apps/desktop/src/preload.ts',
+    'panel-preload': 'apps/desktop/src/panel-preload.ts',
+  },
   outdir: 'apps/desktop/dist', outExtension: { '.js': '.cjs' },
   bundle: true, platform: 'node', format: 'cjs', external: ['electron'],
   sourcemap: true,

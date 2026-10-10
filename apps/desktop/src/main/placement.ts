@@ -17,6 +17,22 @@ export function dockFrame(size: { width: number; height: number }, area: Rectang
   return clampFrame({ ...positions[edge], width, height }, area);
 }
 
+/** Opens the tray panel next to its icon, on the side that faces the screen's center. */
+export function panelFrame(size: { width: number; height: number }, tray: Rectangle, area: Rectangle): Rectangle {
+  const width = Math.min(size.width, area.width);
+  const height = Math.min(size.height, area.height);
+  // Some Linux trays report empty bounds. Use the top-right corner, where most tray menus open.
+  if (tray.width === 0 && tray.height === 0) {
+    return clampFrame({ x: area.x + area.width - width - 12, y: area.y + 12, width, height }, area);
+  }
+  const below = tray.y + tray.height / 2 < area.y + area.height / 2;
+  return clampFrame({
+    x: tray.x + tray.width / 2 - width / 2,
+    y: below ? tray.y + tray.height + 6 : tray.y - height - 6,
+    width, height,
+  }, area);
+}
+
 export function clampFrame(frame: Rectangle, area: Rectangle): Rectangle {
   return { ...frame,
     x: Math.round(Math.max(area.x, Math.min(frame.x, area.x + area.width - frame.width))),

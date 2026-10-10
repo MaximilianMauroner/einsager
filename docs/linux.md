@@ -16,8 +16,11 @@ sudo apt-get install xdotool
 ```
 
 Restart Einsager after installing it. No elevated permission is used by the app.
-Without this optional tool, dictation still records and copies the transcript.
-The tray and pill context menu explain whether automatic paste is available.
+Without this optional tool, dictation still records. The transcript is copied
+unless the clipboard setting is **Never**.
+The tray menu, the pill's context menu, and the tray panel's Settings explain
+whether automatic paste is available. On Linux the tray icon opens a menu;
+choose **History and settings…** for the tray panel.
 
 Before recording, the app captures the focused X11 window and its process ID.
 After transcription it writes the clipboard, checks that the same window/process
@@ -30,7 +33,10 @@ does not select a new application for insertion.
 X11 focus identifies a window, not an individual field inside a browser or editor.
 Changing fields inside the same window may not change this identity. Some clients
 reject targeted XSendEvent keyboard input. The app reports that the paste shortcut
-was sent, which does not confirm insertion; the transcript stays on the clipboard.
+was sent, which does not confirm insertion. With the default clipboard setting,
+the previous clipboard comes back 1 second after the paste is sent. If the text
+did not arrive, use Copy last or copy it from the tray panel's history. Choose
+**Always** in Settings to keep the transcript on the clipboard instead.
 Use your editor's paste shortcut if necessary, commonly Ctrl+V or Ctrl+Shift+V
 in a terminal. The app does not detect terminal-specific paste bindings.
 
@@ -47,16 +53,19 @@ This version does not request RemoteDesktop control or use privileged input tool
 
 Electron's GlobalShortcutsPortal feature is enabled before startup. Ctrl+Alt+Space
 depends on the desktop's shortcut portal and permission. If the shortcut is
-unavailable, click the pill. The compositor owns window placement, so Dock menu
-items and drag requests are disabled. Recording controls and labels still resize
-the window. Always-on-top/fullscreen visibility depends on the compositor.
+unavailable, click the pill. The compositor owns window placement, so the
+**Dock the pill** setting and drag requests are disabled. Recording controls and
+labels still resize the window. Always-on-top/fullscreen visibility depends on
+the compositor.
 
 ## Tray and microphone
 
 Tray visibility depends on the desktop shell. Some GNOME setups need an
 AppIndicator extension. The pill's right-click menu has the same controls,
-including Quit and Select Codex folder, so recording does not require a visible
-tray icon. No desktop-shell extension is installed by the app.
+including Quit and **History and settings…**, so recording does not require a
+visible tray icon. **History and settings…** opens the tray panel. Set docking
+and the Codex folder in its Settings. No desktop-shell extension is installed by
+the app.
 
 Select and enable the microphone in the system's sound settings. Chromium uses
 the available Linux audio stack; the app does not add a second recording backend.
