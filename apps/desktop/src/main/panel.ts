@@ -60,6 +60,9 @@ export class TrayPanel {
     if (this.window.isVisible()) this.place();
   }
 
+  /** True while a dialog the panel opened is showing. */
+  get holdingOpen() { return this.holding > 0; }
+
   /** Keeps the panel open while a dialog it opened has focus. */
   async holdOpen<T>(task: () => Promise<T>) {
     this.holding++;

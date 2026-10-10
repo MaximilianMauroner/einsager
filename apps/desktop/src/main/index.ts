@@ -52,8 +52,9 @@ async function saveSettings() {
 }
 
 async function chooseCodexHome() {
+  // Escape stays unregistered while the dialog is open, so apply the rule again when it closes.
   const selection = await panel.holdOpen(() => dialog.showOpenDialog(panel.window,
-    { title: 'Select your Codex folder', properties: ['openDirectory', 'showHiddenFiles'] }));
+    { title: 'Select your Codex folder', properties: ['openDirectory', 'showHiddenFiles'] })).finally(updateEscape);
   if (selection.canceled) return;
   delivery.cancel();
   await transcription.cancel();
@@ -94,10 +95,10 @@ function publish() {
 
 function openPanel() { panel.show(tray.getBounds()); }
 
-/** Escape cancels a session from anywhere, except inside the focused panel, which uses it to close views. */
+/** Escape cancels a session from anywhere, except inside the focused panel or its dialog, which use it to close. */
 function updateEscape() {
   globalShortcut.unregister('Escape');
-  if (status.state !== 'idle' && !panel.window.isFocused()) globalShortcut.register('Escape', () => send('cancel'));
+  if (status.state !== 'idle' && !panel.window.isFocused() && !panel.holdingOpen) globalShortcut.register('Escape', () => send('cancel'));
 }
 
 function actionMenu() {
