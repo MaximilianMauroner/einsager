@@ -6,6 +6,7 @@ import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { promisify } from 'node:util';
+import electronExecutable from 'electron';
 import { TranscriptDelivery } from '../src/main/delivery.ts';
 import { LinuxDesktop } from '../src/main/linux/desktop.ts';
 
@@ -14,6 +15,8 @@ const execute = promisify(execFile);
 const directory = await mkdtemp(join(tmpdir(), 'einsager-x11-test-'));
 let editor;
 try {
+  await execute(electronExecutable, [resolve('apps/desktop/tests/fixtures/quit-before-start.cjs'), `--user-data-dir=${join(directory, 'early-quit')}`], { timeout: 10_000 });
+  console.log('Desktop startup: quitting before readiness terminates the production app.');
   editor = await electron.launch({ args: [resolve('apps/desktop/tests/fixtures/linux-editor.cjs'), `--user-data-dir=${directory}`] });
   const page = await editor.firstWindow();
   const field = page.getByRole('textbox', { name: 'Test editor' });

@@ -205,7 +205,8 @@ else {
     quitting = true;
     delivery.cancel();
     globalShortcut.unregisterAll();
-    void transcription?.cancel().finally(() => app.quit());
+    if (!transcription) { app.quit(); return; }
+    void transcription.cancel().finally(() => app.quit());
   });
   void app.whenReady().then(start).catch(error => { console.error(error); app.exit(1); });
 }

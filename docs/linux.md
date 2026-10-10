@@ -69,6 +69,7 @@ Only the bundled local renderer can request microphone permission.
 installed, `xvfb-run -a pnpm test:linux` exercises actual X11 paste in a separate
 blank editor and the Wayland fallback policy under Xvfb. The latter verifies code
 paths, not a real Wayland compositor. Both use test text and no Codex credentials.
+The same command checks that quitting before startup completes exits the process.
 
 Real microphone capture, ChatGPT transcription, keyboard portal permission,
 desktop-shell tray behavior, compositor placement, and insertion in daily-use
