@@ -2,7 +2,7 @@
 // This uses Chromium's fake microphone and an empty Codex folder, never a real login.
 import { _electron as electron, expect } from '@playwright/test';
 import assert from 'node:assert/strict';
-import { mkdtemp, readFile, rm, mkdir } from 'node:fs/promises';
+import { mkdtemp, readFile, rm, mkdir, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 
@@ -19,6 +19,9 @@ const directory = await mkdtemp(join(tmpdir(), 'einsager-smoke-'));
 const profile = join(directory, 'profile');
 const codex = join(directory, 'empty-codex');
 await mkdir(codex);
+// A chosen folder that matches CODEX_HOME, so the panel can reset it without changing which login the helper reads.
+await mkdir(profile);
+await writeFile(join(profile, 'settings.json'), JSON.stringify({ codexHome: codex }));
 await mkdir('.agents/artifacts', { recursive: true });
 let application;
 try {
@@ -87,7 +90,24 @@ try {
   await inPanel(`[...document.querySelectorAll('.choice')].find(choice => choice.textContent.startsWith('Always')).click()`);
   await clickInPanel('[role="switch"]');
   await expect.poll(async () => JSON.parse(await readFile(join(profile, 'settings.json'), 'utf8')))
-    .toMatchObject({ edge: 'bottom', clipboard: 'always', keepHistory: false });
+    .toMatchObject({ edge: 'bottom', clipboard: 'always', keepHistory: false, codexHome: codex });
+  const resetCodexFolder = `[...document.querySelectorAll('button')].find(button => button.textContent === 'Reset to default')`;
+  assert.equal(await inPanel(`${resetCodexFolder}.disabled`), false, 'A chosen Codex folder can be reset');
+  await inPanel(`${resetCodexFolder}.click()`);
+  await expect.poll(async () => 'codexHome' in JSON.parse(await readFile(join(profile, 'settings.json'), 'utf8'))).toBe(false);
+  await expect.poll(() => inPanel(`${resetCodexFolder}.disabled`)).toBe(true);
+  // The pill lists Chromium's fake inputs for Settings. Choose the last one, which is not the default.
+  const microphoneSelect = `[...document.querySelectorAll('label.row')].find(row => row.textContent.startsWith('Microphone')).querySelector('select')`;
+  await expect.poll(() => inPanel(`${microphoneSelect}.options.length`)).toBeGreaterThan(1);
+  const microphone = await inPanel(`(() => {
+    const select = ${microphoneSelect};
+    const { value } = select.options[select.options.length - 1];
+    select.value = value;
+    select.dispatchEvent(new Event('change', { bubbles: true }));
+    return value;
+  })()`);
+  assert.ok(microphone, 'A connected microphone has an id');
+  await expect.poll(async () => JSON.parse(await readFile(join(profile, 'settings.json'), 'utf8')).microphone).toBe(microphone);
   await clickInPanel('.back');
   await expect.poll(panelText).toContain('History is off.');
   await application.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()
@@ -163,6 +183,23 @@ try {
     'A late Mac paste-key response must leave the microphone running');
   await page.getByRole('button', { name: 'Cancel dictation' }).click();
   await expect.poll(() => page.evaluate(() => window.testMicrophoneStream.getAudioTracks()[0].readyState)).toBe('ended');
+  // Recording uses the microphone chosen in Settings.
+  await page.getByRole('button', { name: 'Start hands-free dictation' }).click();
+  await page.getByRole('button', { name: 'Finish dictation' }).waitFor();
+  assert.equal(await page.evaluate(() => window.testMicrophoneStream.getAudioTracks()[0].getSettings().deviceId), microphone,
+    'Recording must use the microphone chosen in Settings');
+  await page.getByRole('button', { name: 'Cancel dictation' }).click();
+  await page.getByRole('button', { name: 'Start hands-free dictation' }).waitFor();
+  // An unplugged choice records from the system default, and Settings says so.
+  await inPanel(`window.einsagerPanel.update({ microphone: 'unplugged' })`);
+  await clickInPanel('[aria-label="Settings"]');
+  await expect.poll(() => inPanel(`${microphoneSelect}.selectedOptions[0].textContent`)).toBe('Not connected, uses default');
+  await clickInPanel('.back');
+  await page.getByRole('button', { name: 'Start hands-free dictation' }).click();
+  await page.getByRole('button', { name: 'Finish dictation' }).waitFor();
+  assert.equal(await page.evaluate(() => window.testMicrophoneStream.getAudioTracks()[0].getSettings().deviceId), 'default');
+  await page.getByRole('button', { name: 'Cancel dictation' }).click();
+  await page.getByRole('button', { name: 'Start hands-free dictation' }).waitFor();
 
   // Exercise renderer sizing, IPC placement, and side alignment together.
   const pill = page.locator('.pill');
@@ -218,7 +255,7 @@ try {
     await page.screenshot({ path: `.agents/artifacts/${evidence}-${edge}-hover.png`, omitBackground: true });
   }
   assert.deepEqual(errors, []);
-  console.log(`${evidence}: launch, recording, safe Copy/recovery, login error, Retry capability, tray panel state and settings, hidden idle pill, delayed Mac info, cancellation, and ${waylandPolicy ? 'compositor-owned placement with working resize' : 'side docking'} passed. No request sent.`);
+  console.log(`${evidence}: launch, recording, safe Copy/recovery, login error, Retry capability, tray panel state and settings, Codex folder reset, microphone choice and fallback, hidden idle pill, delayed Mac info, cancellation, and ${waylandPolicy ? 'compositor-owned placement with working resize' : 'side docking'} passed. No request sent.`);
 } finally {
   await application?.close();
   await rm(directory, { recursive: true, force: true });

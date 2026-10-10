@@ -1,6 +1,6 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import type { Delivery, DesktopBridge, DesktopInfo, SessionStatus, TranscriptResult } from '../shared/contract';
-import { MicrophoneRecording, RECORDING_SECONDS } from './audio';
+import { listMicrophones, MicrophoneRecording, RECORDING_SECONDS } from './audio';
 import { HoldGesture, type RecordingMode } from './gesture';
 import { DEFAULT_SHORTCUT } from '../shared/shortcut';
 
@@ -115,9 +115,9 @@ export function App() {
     mode.current = next;
     setHolding(next === 'hold');
     try {
-      await api.begin();
+      const { microphone: input } = await api.begin();
       if (id !== generation.current) return;
-      const microphone = await MicrophoneRecording.start((level, seconds) => {
+      const microphone = await MicrophoneRecording.start(input, (level, seconds) => {
         setLevels(previous => [...previous.slice(1), level]);
         setSecondsLeft(seconds >= RECORDING_SECONDS - 60 ? Math.ceil(RECORDING_SECONDS - seconds) : undefined);
       }, () => { void finish(); });
@@ -161,6 +161,15 @@ export function App() {
     const updates = api?.onInfo(setInfo);
     return () => { action?.(); updates?.(); };
   }, [api, info.pasteKey]);
+
+  // Only the pill has microphone permission, so it lists the inputs for the panel's Settings.
+  useEffect(() => {
+    if (!api) return;
+    const report = () => { void listMicrophones().then(list => api.microphones(list)); };
+    report();
+    navigator.mediaDevices.addEventListener('devicechange', report);
+    return () => navigator.mediaDevices.removeEventListener('devicechange', report);
+  }, [api]);
 
   // A hidden window gets no mouseleave, so drop the hover state while hidden.
   useEffect(() => {

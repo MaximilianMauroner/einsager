@@ -24,6 +24,9 @@ If a Fleet command named `cc` precedes the system compiler on Linux, select
 `pnpm package` creates a runnable application folder in `release/` for the
 current OS and CPU. It bundles that system's Rust helper. Build and package
 on macOS for the `.app`, Windows for the `.exe`, and Linux for the Linux binary.
+On macOS, packaging also renders the app icon from
+`assets/icons/einsager-breath.pdf` with the native app's
+`apps/macos/scripts/make-app-icon.swift`, so it needs Swift.
 This first layer does not create installers, sign Windows releases, or notarize
 Mac releases. Start builds separately for each architecture.
 
@@ -37,6 +40,7 @@ The Rust helper finds the file-based ChatGPT login at:
 
 Use **Codex login folder** in the tray panel's Settings for a custom location,
 including when the desktop launcher does not inherit your shell environment.
+**Reset to default** removes the custom folder, so the lookup above applies again.
 The app stores that folder path and its settings in `settings.json`, and
 transcript history in `history.json`, in its user-data folder with owner-only
 permissions. It does not locate a Codex executable, copy the login, or change
@@ -58,7 +62,12 @@ Ctrl, Alt, Cmd, or Super, or a function key alone; Esc cancels. On macOS, hold *
 key; a third quick tap cancels. These Fn shortcuts need Accessibility access for
 einsager: **Allow…** in Settings opens the Accessibility list in System
 Settings. Until then, the Fn shortcut buttons stay disabled and the
-**Fallback** shortcut, Ctrl+Alt+Space by default, starts dictation. The native Mac app has its own entry with the same name, so its access
+**Fallback** shortcut, Ctrl+Alt+Space by default, starts dictation. At each
+launch, einsager asks for missing microphone and Accessibility access, so a
+missing permission does not first show up as a failed recording. Local builds
+are ad-hoc signed, so after an update macOS can show einsager as allowed and
+still block it. Then remove einsager from the list with the minus button and add
+`/Applications/einsager.app` again with the plus button. The native Mac app has its own entry with the same name, so its access
 does not count for this app. When you run `pnpm start` from a terminal, macOS
 checks the terminal app's access instead. Change either macOS shortcut in
 Settings: click it, press the new keys, and release them. Esc cancels the
@@ -107,6 +116,10 @@ text as the last transcript clears it too.
 Copy last can copy an earlier transcript while a failed recording stays available
 for Retry. A failure to create or write the temporary recording discards any
 partial file and disables Retry; fix the storage problem and start a new dictation.
+
+Choose the input under **Microphone** in Settings. **System default** follows the
+OS choice. A chosen input that is not connected records from the system default,
+and Settings shows it as not connected. The choice applies to the next recording.
 
 Portable recording is 16 kHz, 16-bit mono WAV, capped at 10 minutes so it stays
 below the helper's 25 MiB upload limit. Native Mac recording retains the verified

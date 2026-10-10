@@ -1,9 +1,9 @@
-import { app, BrowserWindow, clipboard, ClipboardItem, dialog, globalShortcut, ipcMain, Menu, nativeImage, screen, session, Tray } from 'electron';
+import { app, BrowserWindow, clipboard, ClipboardItem, dialog, globalShortcut, ipcMain, Menu, nativeImage, screen, session, shell, systemPreferences, Tray } from 'electron';
 import { readFile } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { join, resolve, sep } from 'node:path';
 import { pathToFileURL } from 'node:url';
-import type { DesktopAction, DesktopInfo, KeyboardState, PanelState, SessionStatus, Settings, TranscriptResult } from '../shared/contract';
+import type { DesktopAction, DesktopInfo, KeyboardState, Microphone, PanelState, SessionStatus, Settings, TranscriptResult } from '../shared/contract';
 import { clampFrame, dockFrame, nearestEdge } from './placement';
 import { TranscriptionSession } from './transcription';
 import { platformFor } from './platform';
@@ -38,6 +38,8 @@ let keyboard: MacKeyboard | undefined;
 let keyboardState: KeyboardState | undefined;
 /** The pill has a session or result to show, so it appears even when hidden while idle. */
 let pillNeeded = false;
+/** The audio inputs the pill last listed. */
+let microphones: Microphone[] = [];
 let transcription: TranscriptionSession;
 let dragOrigin: Electron.Rectangle | undefined;
 let pillHeight = 8;
@@ -64,14 +66,50 @@ async function chooseCodexHome() {
   // Escape stays unregistered while the dialog is open, so apply the rule again when it closes.
   const selection = await panel.holdOpen(() => dialog.showOpenDialog(panel.window,
     { title: 'Select your Codex folder', properties: ['openDirectory', 'showHiddenFiles'] })).finally(updateEscape);
-  if (selection.canceled) return;
+  if (!selection.canceled) await setCodexHome(selection.filePaths[0]);
+}
+
+/** Restarts the helper with the new folder, so a session in progress cannot finish with the earlier login. */
+async function setCodexHome(codexHome: string | undefined) {
   delivery.cancel();
   await transcription.cancel();
   send('cancel');
-  settings = { ...settings, codexHome: selection.filePaths[0] };
+  settings = { ...settings, codexHome };
   createTranscription();
   await saveSettings();
   publish();
+}
+
+/**
+ * Asks for missing macOS access at launch, so it is not first noticed when a recording fails. Each local build has a
+ * new ad-hoc signature, so after an update macOS can treat einsager as a new app. Accessibility then often shows
+ * einsager as allowed while it rejects the new build, so the alert says how to replace that entry.
+ */
+async function askForAccess(keyboardStarted: Promise<void> | undefined) {
+  const microphone = systemPreferences.getMediaAccessStatus('microphone');
+  // The system asks only once. A refusal now is the user's answer, so it does not lead to the alert below.
+  if (microphone === 'not-determined') await systemPreferences.askForMediaAccess('microphone');
+  await keyboardStarted;
+  const needsMicrophone = microphone === 'denied';
+  const needsAccessibility = keyboardState?.trusted === false;
+  if (!needsMicrophone && !needsAccessibility) return;
+  const missing = [needsMicrophone && 'the microphone', needsAccessibility && 'Accessibility'].filter(item => item !== false);
+  const detail = [
+    needsMicrophone && 'Without microphone access, einsager cannot record.',
+    needsAccessibility && 'Without Accessibility, Fn shortcuts do not work. The fallback shortcut still starts dictation.',
+    needsAccessibility && 'After an update, macOS can show einsager as allowed and still block it. Select einsager in the list, '
+      + 'remove it with the minus button, then add /Applications/einsager.app with the plus button.',
+    needsMicrophone && needsAccessibility && 'Both lists are in Privacy & Security.',
+  ].filter(item => item !== false);
+  // einsager has no Dock icon, so without focus the alert can open behind other windows.
+  app.focus({ steal: true });
+  const { response } = await dialog.showMessageBox({
+    type: 'warning', message: `Allow einsager to use ${missing.join(' and ')}`, detail: detail.join('\n\n'),
+    buttons: ['Open System Settings', 'Later'], defaultId: 0, cancelId: 1,
+  });
+  if (response !== 0) return;
+  if (needsAccessibility) keyboard?.send({ command: 'prompt' });
+  else await shell.openExternal('x-apple.systempreferences:com.apple.preference.security?Privacy_Microphone');
 }
 
 const helperFile = (name: string) => app.isPackaged ? join(process.resourcesPath, name) : resolve('target/release', name);
@@ -121,7 +159,8 @@ function codexFolder() {
 function panelState(): PanelState {
   const { codexHome: _, ...editable } = settings;
   return {
-    status, history: [...history.entries], settings: editable, codexFolder: codexFolder(),
+    status, history: [...history.entries], settings: editable,
+    codexFolder: codexFolder(), customCodexFolder: Boolean(settings.codexHome), microphones,
     shortcutAvailable, canPaste: linux?.canPaste ?? false,
     canPositionWindow: linux?.canPositionWindow !== false, desktopNotice: linux?.notice, keyboard: keyboardState,
   };
@@ -179,6 +218,9 @@ function parseStatus(value: unknown): SessionStatus | undefined {
   }
 }
 
+const isMicrophone = (value: unknown): value is Microphone => typeof value === 'object' && value !== null
+  && 'id' in value && typeof value.id === 'string' && 'label' in value && typeof value.label === 'string';
+
 function installIPC() {
   // Only the bundled local top-level documents may call privileged operations, each on its own channels.
   const trusted = (event: Electron.IpcMainEvent | Electron.IpcMainInvokeEvent) => {
@@ -194,11 +236,18 @@ function installIPC() {
     pillNeeded = value;
     updatePill();
   });
+  ipcMain.on('microphones', (event, value: unknown) => {
+    trusted(event);
+    if (!Array.isArray(value)) return;
+    microphones = value.filter(isMicrophone).map(({ id, label }) => ({ id, label }));
+    publish();
+  });
   ipcMain.handle('begin', async event => {
     trusted(event);
     const preparation = delivery.begin();
     await transcription.cancel();
     await preparation;
+    return { microphone: settings.microphone };
   });
   ipcMain.handle('transcribe', async (event, audio: unknown) => {
     trusted(event);
@@ -314,6 +363,7 @@ function installIPC() {
     applyShortcuts();
   });
   ipcMain.handle('panel:codex', async event => { fromPanel(event); await chooseCodexHome(); });
+  ipcMain.handle('panel:codex-reset', async event => { fromPanel(event); if (settings.codexHome) await setCodexHome(undefined); });
   ipcMain.on('panel:resize', (event, height: unknown) => {
     fromPanel(event);
     if (typeof height === 'number' && Number.isFinite(height)) panel.resize(height);
@@ -368,13 +418,14 @@ async function start() {
   }
   installIPC();
   applyShortcuts();
+  let keyboardStarted: Promise<void> | undefined;
   if (platform.keyboardHelper) {
     const actions = { holdPressed: 'hold-pressed', holdReleased: 'hold-released', toggle: 'toggle', interrupted: 'hold-interrupted' } as const;
     keyboard = new MacKeyboard(helperFile(platform.keyboardHelper), state => {
       keyboardState = state;
       applyShortcuts();
     }, action => send(actions[action]));
-    keyboard.start();
+    keyboardStarted = keyboard.start();
   }
   await window.loadFile(rendererFile('index.html'));
   reposition();
@@ -382,6 +433,10 @@ async function start() {
   await panel.window.loadFile(rendererFile('panel.html'));
   screen.on('display-removed', reposition);
   screen.on('display-metrics-changed', reposition);
+  // Automated runs fake Chromium's permission questions, so they skip the system ones too.
+  if (process.platform === 'darwin' && !app.commandLine.hasSwitch('use-fake-ui-for-media-stream')) {
+    void askForAccess(keyboardStarted).catch(error => console.error('Could not ask for access:', error));
+  }
 }
 
 if (!app.requestSingleInstanceLock()) app.quit();

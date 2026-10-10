@@ -10,8 +10,8 @@ const MAX_HEIGHT = 600;
 const mac = navigator.platform.startsWith('Mac');
 const initial: PanelState = {
   status: { state: 'idle' }, history: [],
-  settings: { edge: 'bottom', clipboard: 'if-paste-fails', keepHistory: true, showPill: true, shortcut: DEFAULT_SHORTCUT },
-  codexFolder: '~/.codex', shortcutAvailable: true, canPaste: false, canPositionWindow: true,
+  settings: { edge: 'bottom', clipboard: 'if-paste-fails', keepHistory: true, showPill: true, shortcut: DEFAULT_SHORTCUT, microphone: '' },
+  codexFolder: '~/.codex', customCodexFolder: false, microphones: [], shortcutAvailable: true, canPaste: false, canPositionWindow: true,
 };
 const clipboardChoices: { mode: ClipboardMode; label: string; detail: string }[] = [
   { mode: 'always', label: 'Always', detail: 'The transcript stays on the clipboard.' },
@@ -211,6 +211,15 @@ export function Panel() {
         <button className="back" onClick={() => setView('tape')}><Icon name="back" /><span className="word">Settings</span></button>
       </header>
       <div className="settings">
+        <label className="row">
+          <span>Microphone</span>
+          <select value={settings.microphone} onChange={event => update({ microphone: event.target.value })}>
+            <option value="">System default</option>
+            {state.microphones.map(item => <option key={item.id} value={item.id}>{item.label}</option>)}
+            {settings.microphone && !state.microphones.some(item => item.id === settings.microphone)
+              && <option value={settings.microphone}>Not connected, uses default</option>}
+          </select>
+        </label>
         <fieldset className="choices">
           <legend>Clipboard after dictation</legend>
           {clipboardChoices.map(choice => <label key={choice.mode} className="choice">
@@ -236,8 +245,12 @@ export function Panel() {
             if (choice) update({ edge: choice.edge });
           }}>{edges.map(item => <option key={item.edge} value={item.edge}>{item.label}</option>)}</select>
         </label>
-        <button className="row" onClick={() => void api?.chooseCodexHome()}>
-          <span>Codex login folder</span><span className="value"><span className="path">{state.codexFolder}</span><Icon name="right" /></span>
+        <div className="group-head">
+          <span>Codex login folder</span>
+          <button className="quiet" disabled={!state.customCodexFolder} onClick={() => void api?.resetCodexHome()}>Reset to default</button>
+        </div>
+        <button className="row" aria-label={`Change the Codex login folder, now ${state.codexFolder}`} onClick={() => void api?.chooseCodexHome()}>
+          <span className="path">{state.codexFolder}</span><Icon name="right" />
         </button>
         {state.keyboard
           ? <ShortcutRows keyboard={state.keyboard} api={api}

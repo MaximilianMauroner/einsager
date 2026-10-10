@@ -63,11 +63,12 @@ the compositor.
 Tray visibility depends on the desktop shell. Some GNOME setups need an
 AppIndicator extension. The pill's right-click menu has the same controls,
 including Quit and **History and settings…**, so recording does not require a
-visible tray icon. **History and settings…** opens the tray panel. Set docking
-and the Codex folder in its Settings. No desktop-shell extension is installed by
-the app.
+visible tray icon. **History and settings…** opens the tray panel. Set docking,
+the microphone, and the Codex folder in its Settings. No desktop-shell extension
+is installed by the app.
 
-Select and enable the microphone in the system's sound settings. Chromium uses
+Enable the microphone in the system's sound settings. **System default** in
+Settings follows the system's choice; pick another input there. Chromium uses
 the available Linux audio stack; the app does not add a second recording backend.
 If recording fails, check the input device, its mute state, and microphone access.
 Only the bundled local renderer can request microphone permission.

@@ -18,9 +18,16 @@ export interface DesktopInfo {
   desktopNotice?: string;
 }
 
+/** An audio input the pill can record from. Chromium's id stays the same for this app's profile. */
+export interface Microphone {
+  id: string;
+  label: string;
+}
+
 export interface DesktopBridge {
   info(): Promise<DesktopInfo>;
-  begin(): Promise<void>;
+  /** Prepares a session and returns the audio input chosen in Settings, so a change applies to the next recording. */
+  begin(): Promise<{ microphone: string }>;
   transcribe(wav: ArrayBuffer): Promise<TranscriptResult>;
   retry(): Promise<TranscriptResult>;
   cancel(): Promise<void>;
@@ -31,6 +38,8 @@ export interface DesktopBridge {
   status(value: SessionStatus): void;
   /** Tells the host whether the pill has something to show, so a hidden idle pill can appear. */
   visible(value: boolean): void;
+  /** Reports the audio inputs. Only the pill has microphone permission, so the panel cannot list them itself. */
+  microphones(value: Microphone[]): void;
   onAction(callback: (action: DesktopAction) => void): () => void;
   onInfo(callback: (info: DesktopInfo) => void): () => void;
 }
@@ -53,6 +62,8 @@ export interface Settings {
   showPill: boolean;
   /** Electron's global shortcut for hands-free dictation, such as "Ctrl+Alt+Space". */
   shortcut: string;
+  /** Chromium's id for the chosen audio input. Empty uses the system default. */
+  microphone: string;
   /** Custom Codex folder; the helper's default lookup applies when absent. */
   codexHome?: string;
 }
@@ -77,6 +88,10 @@ export interface PanelState {
   settings: PanelSettings;
   /** The Codex folder the helper reads, shortened with ~ for display. */
   codexFolder: string;
+  /** True when the user chose the folder, so resetting returns to the default lookup. */
+  customCodexFolder: boolean;
+  /** The connected audio inputs, without Chromium's "default" entry, which Settings shows as System default. */
+  microphones: Microphone[];
   /** False when another app holds the Electron shortcut in settings. */
   shortcutAvailable: boolean;
   canPaste: boolean;
@@ -99,6 +114,7 @@ export interface PanelBridge {
   clear(): Promise<void>;
   update(settings: Partial<PanelSettings>): Promise<void>;
   chooseCodexHome(): Promise<void>;
+  resetCodexHome(): Promise<void>;
   shortcut(command: KeyboardCommand): void;
   /** Releases the Electron shortcut while the panel records a new one, so its keys reach the panel. */
   recordShortcut(active: boolean): void;

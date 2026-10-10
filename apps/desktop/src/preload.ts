@@ -13,6 +13,7 @@ const bridge: DesktopBridge = {
   menu: () => ipcRenderer.send('menu'),
   status: value => ipcRenderer.send('status', value),
   visible: value => ipcRenderer.send('visible', value),
+  microphones: value => ipcRenderer.send('microphones', value),
   onAction(callback) {
     const handler = (_event: Electron.IpcRendererEvent, action: DesktopAction) => callback(action);
     ipcRenderer.on('action', handler);

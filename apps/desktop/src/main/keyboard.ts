@@ -37,19 +37,22 @@ export class MacKeyboard {
     this.onAction = onAction;
   }
 
+  /** Resolves once the helper reports its first state, or stops before it does. */
   start() {
     const child = spawn(this.file, [], { stdio: ['pipe', 'pipe', 'ignore'] });
     this.child = child;
-    // A missing or crashed helper leaves the Electron fallback shortcut in charge.
-    // 'close' follows the helper's last output line, so no action arrives after it stops.
-    child.on('error', () => this.stopped(child));
-    child.on('close', () => this.stopped(child));
-    // A write after the helper dies fails with EPIPE; 'close' already reports the fallback.
-    child.stdin.on('error', () => {});
-    createInterface({ input: child.stdout }).on('line', line => {
-      const message = parseHelperLine(line);
-      if (message?.event === 'state') this.onState(message.state);
-      if (message?.event === 'action') this.onAction(message.action);
+    return new Promise<void>(resolve => {
+      // A missing or crashed helper leaves the Electron fallback shortcut in charge.
+      // 'close' follows the helper's last output line, so no action arrives after it stops.
+      child.on('error', () => { this.stopped(child); resolve(); });
+      child.on('close', () => { this.stopped(child); resolve(); });
+      // A write after the helper dies fails with EPIPE; 'close' already reports the fallback.
+      child.stdin.on('error', () => {});
+      createInterface({ input: child.stdout }).on('line', line => {
+        const message = parseHelperLine(line);
+        if (message?.event === 'state') { this.onState(message.state); resolve(); }
+        if (message?.event === 'action') this.onAction(message.action);
+      });
     });
   }
 

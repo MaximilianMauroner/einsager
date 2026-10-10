@@ -19,6 +19,7 @@ const bridge: PanelBridge = {
   clear: () => ipcRenderer.invoke('panel:clear'),
   update: settings => ipcRenderer.invoke('panel:update', settings),
   chooseCodexHome: () => ipcRenderer.invoke('panel:codex'),
+  resetCodexHome: () => ipcRenderer.invoke('panel:codex-reset'),
   shortcut: command => ipcRenderer.send('panel:shortcut', command),
   recordShortcut: active => ipcRenderer.send('panel:record-shortcut', active),
   resize: height => ipcRenderer.send('panel:resize', height),

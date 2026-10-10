@@ -1,3 +1,5 @@
+import type { Microphone } from '../shared/contract';
+
 export const RECORDING_SECONDS = 10 * 60;
 
 /** Capture mono PCM. WAV uses the already-tested helper format on every platform. */
@@ -38,8 +40,8 @@ export class MicrophoneRecording {
     };
   }
 
-  static async start(onLevel: (level: number, seconds: number) => void, onLimit: () => void) {
-    const stream = await navigator.mediaDevices.getUserMedia({ audio: { channelCount: 1 }, video: false });
+  static async start(microphone: string, onLevel: (level: number, seconds: number) => void, onLimit: () => void) {
+    const stream = await openMicrophone(microphone);
     try {
       const recording = new MicrophoneRecording(stream, onLevel, onLimit);
       await recording.context.resume();
@@ -75,6 +77,26 @@ export class MicrophoneRecording {
     this.stream.getTracks().forEach(track => track.stop());
     void this.context.close();
   }
+}
+
+/**
+ * An empty or unplugged microphone records from the system default instead of failing.
+ * Chromium ignores an ideal deviceId, so the chosen one is exact and its absence falls back.
+ */
+async function openMicrophone(microphone: string) {
+  const audio = { channelCount: 1 };
+  if (microphone) {
+    try { return await navigator.mediaDevices.getUserMedia({ audio: { ...audio, deviceId: { exact: microphone } }, video: false }); }
+    catch (error) { if (!(error instanceof DOMException && error.name === 'OverconstrainedError')) throw error; }
+  }
+  return navigator.mediaDevices.getUserMedia({ audio, video: false });
+}
+
+/** Lists audio inputs. Chromium's "default" entry follows the system choice, which Settings offers separately. */
+export async function listMicrophones(): Promise<Microphone[]> {
+  const devices = await navigator.mediaDevices.enumerateDevices();
+  return devices.filter(device => device.kind === 'audioinput' && device.deviceId && device.deviceId !== 'default')
+    .map((device, index) => ({ id: device.deviceId, label: device.label || `Microphone ${index + 1}` }));
 }
 
 export function encodeWav(samples: Float32Array, sourceRate: number): ArrayBuffer {
