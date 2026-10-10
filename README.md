@@ -118,6 +118,7 @@ for permission troubleshooting and the full verification history.
 Use `pnpm check` for the portable app's types and unit tests, and
 `pnpm test:desktop` after a desktop build for the fake-microphone smoke test.
 That test uses an empty login folder and sends no transcription request.
+Use `pnpm test:packaged` after `pnpm package` to check the bundled app too.
 
 ## License
 

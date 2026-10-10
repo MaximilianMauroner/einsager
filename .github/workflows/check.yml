@@ -37,10 +37,14 @@ jobs:
       - run: pnpm package
       - name: Desktop smoke test (Linux)
         if: runner.os == 'Linux'
-        run: xvfb-run -a pnpm test:desktop
+        run: |
+          xvfb-run -a pnpm test:desktop
+          xvfb-run -a pnpm test:packaged
       - name: Desktop smoke test (macOS and Windows)
         if: runner.os != 'Linux'
-        run: pnpm test:desktop
+        run: |
+          pnpm test:desktop
+          pnpm test:packaged
       - name: Native Mac checks and build
         if: runner.os == 'macOS'
         run: |
@@ -54,3 +58,4 @@ jobs:
           name: desktop-evidence-${{ matrix.os }}
           path: .agents/artifacts/
           if-no-files-found: ignore
+          include-hidden-files: true

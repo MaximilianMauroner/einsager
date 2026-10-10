@@ -16,7 +16,8 @@
     "check": "tsc --noEmit && node --test desktop/tests/*.test.ts",
     "package": "node scripts/package-desktop.mjs",
     "preview": "vite --host 0.0.0.0 --config desktop/vite.config.ts",
-    "test:desktop": "node desktop/tests/smoke.mjs"
+    "test:desktop": "node desktop/tests/smoke.mjs",
+    "test:packaged": "node desktop/tests/smoke.mjs --packaged"
   },
   "dependencies": {
     "react": "19.3.0",

@@ -105,8 +105,15 @@ export function App() {
       if (value === 'copy') void copy();
     });
     const edge = api?.onEdge(edge => setInfo(previous => ({ ...previous, edge })));
-    return () => { action?.(); edge?.(); clearTimeout(messageTimer.current); recording.current?.cancel(); };
+    return () => { action?.(); edge?.(); };
   }, [api, info.pasteKey]);
+
+  useEffect(() => () => {
+    generation.current++;
+    clearTimeout(messageTimer.current);
+    recording.current?.cancel();
+    recording.current = null;
+  }, []);
 
   useEffect(() => {
     const key = (event: KeyboardEvent) => { if (event.key === 'Escape') void cancel(); };

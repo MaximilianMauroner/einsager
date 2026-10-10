@@ -97,10 +97,13 @@ cargo clippy --locked -j 1 --all-targets -- -D warnings
 pnpm build
 # Run with a desktop session; Linux CI may use xvfb-run -a:
 pnpm test:desktop
+pnpm package
+pnpm test:packaged
 ```
 
 The desktop smoke test uses a fake microphone and an empty Codex folder. It
-checks launch, recording, the helper's missing-login error, Retry, and cancel
+checks development and packaged launch, recording, the helper's missing-login
+error, Retry, cancel, safe tray Copy, and a delayed Mac settings response
 without a real login or network transcription. Unit tests verify PCM/WAV output,
 the upload-size bound, docking, process cancellation, and retained-audio Retry.
 Tests with injected fixture helpers verify transcription delivery without
@@ -122,13 +125,20 @@ checking, nine Rust unit tests, two CLI tests, and Clippy with warnings denied.
 The guarded run used one compiler job, a 3 GiB group limit, and zero build swap;
 peak group memory was 1.65 GiB. A later install step failed because of Electron's
 build permission. The explicit runtime installer and allowed dependency build
-are now configured together. Build, packaging, and launch verification still
-need completion. No live Codex credentials were read or changed, and no
+are now configured together. A later guarded Linux release and desktop build
+passed. The first CI run also passed Linux and Mac builds, then found an obsolete
+Packager default import. Fixing that reached pnpm's dependency-tree incompatibility
+in a local packaging run. Packaging now stages only compiled bundles, the MIT
+license, and a minimal runtime manifest; development dependencies are bundled
+at build time. Packaging and both launch checks still need completion.
+No live Codex credentials were read or changed, and no
 transcription request was made in this work.
 
 Review corrected a tray Copy action that could hide live recording controls,
 cancel completion that could reset a newer session, and audio startup from
-global shortcuts. The desktop smoke test covers the Copy interleaving. Windows
+global shortcuts. Recording teardown now runs only on unmount, so late Mac
+settings cannot stop a live microphone. The smoke test covers these interleavings.
+Windows
 home fallback is tested with an injected path; only Unix CLI tests override
 `HOME`, so Windows tests never use a real login to test fallback.
 
