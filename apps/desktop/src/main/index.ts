@@ -319,8 +319,9 @@ else {
     quitting = true;
     delivery.cancel();
     if (app.isReady()) globalShortcut.unregisterAll();
-    if (!transcription) { app.quit(); return; }
-    void transcription.cancel().finally(() => app.quit());
+    // A paste's pending restore runs now, so quitting gives the earlier clipboard back.
+    // Quitting before startup completes has no transcription session to cancel.
+    void Promise.all([delivery.restoreNow(), transcription?.cancel()]).finally(() => app.quit());
   });
   void app.whenReady().then(start).catch(error => { console.error(error); app.exit(1); });
 }

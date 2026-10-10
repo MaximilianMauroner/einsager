@@ -80,11 +80,12 @@ retains only the current temporary recording. There is no background recording.
 - **Never**: the transcript is copied only for a paste. If the paste cannot be
   sent, the previous clipboard comes back at once.
 
-Restoring uses every type that Electron's clipboard reports. If the previous
-contents cannot be read, the transcript stays copied. On macOS and Windows the
-portable app cannot paste yet, so **If paste fails** keeps the transcript copied
-and **Never** leaves the clipboard unchanged. Copy last and the panel's history
-work in every mode.
+Restoring uses every type that Electron's clipboard reports, except the macOS
+Find pasteboard, which a transcript never changes. If the previous contents cannot
+be read, **If paste fails** keeps the transcript copied, and **Never** does not
+copy or paste it. On macOS and Windows the portable app cannot paste yet, so
+**If paste fails** keeps the transcript copied and **Never** leaves the clipboard
+unchanged. Copy last and the panel's history work in every mode.
 
 Transcript history keeps the text, time, length, and a coarse loudness shape of
 the newest 500 transcripts. It never keeps audio. Turn it off or clear it in

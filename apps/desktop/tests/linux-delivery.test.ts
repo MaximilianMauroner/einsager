@@ -319,6 +319,60 @@ test('a delivery cancelled after its paste still gives the clipboard back', asyn
   assert.equal(text, 'previous clipboard');
 });
 
+test('quitting during the restore delay gives the clipboard back first', async () => {
+  let text = 'previous clipboard';
+  const delivery = new TranscriptDelivery({
+    writeText(value) { text = value; }, readText() { return text; },
+    save() { const saved = text; return () => { text = saved; }; },
+  }, async () => async () => true);
+  await delivery.begin();
+  assert.deepEqual(await delivery.deliver({ text: 'pasted' }, delivery.revision, 'if-paste-fails'), { text: 'pasted', delivery: 'pasted' });
+  delivery.cancel();
+  await delivery.restoreNow();
+  assert.equal(text, 'previous clipboard', 'The restore must not wait for its delay');
+});
+
+test('never: a clipboard that cannot be saved is left alone even with a paste target', async () => {
+  let text = 'previous clipboard';
+  let keys = 0;
+  const delivery = new TranscriptDelivery({
+    writeText(value) { text = value; }, readText() { return text; },
+    save() { throw new Error('unreadable format'); },
+  }, async () => async () => { keys++; return true; }, 0);
+  await delivery.begin();
+  assert.deepEqual(await delivery.deliver({ text: 'held' }, delivery.revision, 'never'), { text: 'held', delivery: 'not-copied' });
+  assert.equal(text, 'previous clipboard');
+  assert.equal(keys, 0);
+  assert.equal(await delivery.copyLast(), true);
+  assert.equal(text, 'held');
+});
+
+test('a copy the user asks for while a restore reads the clipboard is kept', async () => {
+  let text = 'previous clipboard';
+  let holdReads = false;
+  let release: () => void = () => {};
+  let entered: () => void = () => {};
+  const reading = new Promise<void>(resolve => { entered = resolve; });
+  const delivery = new TranscriptDelivery({
+    writeText(value) { text = value; },
+    readText() {
+      if (!holdReads) return text;
+      const value = text;
+      entered();
+      return new Promise<string>(resolve => { release = () => resolve(value); });
+    },
+    save() { const saved = text; return () => { text = saved; }; },
+  }, async () => async () => true, 0);
+  await delivery.begin();
+  await delivery.deliver({ text: 'pasted' }, delivery.revision, 'if-paste-fails');
+  holdReads = true;
+  await reading;
+  assert.equal(await delivery.copyLast(), true);
+  release();
+  await wait(5);
+  assert.equal(text, 'pasted');
+});
+
 test('clearing history also clears Copy last', async () => {
   const delivery = new TranscriptDelivery({ writeText() {}, readText() { return ''; }, save: unused });
   await delivery.begin();

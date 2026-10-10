@@ -22,6 +22,8 @@ export class TranscriptDelivery {
   private captureTarget?: (signal: AbortSignal) => Promise<PasteTarget | undefined>;
   private restoreDelay: number;
   private pendingRestore?: { timer: ReturnType<typeof setTimeout>; run: () => Promise<void> };
+  /** Counts explicit copies, so a restore that is already reading the clipboard cannot undo one. */
+  private copies = 0;
 
   constructor(
     clipboard: Clipboard,
@@ -52,11 +54,15 @@ export class TranscriptDelivery {
 
   /** Copies on the user's request. Their copy wins over a pending restore. */
   async copy(text: string) {
+    this.copies++;
     this.dropRestore();
     return this.write(text);
   }
 
   async copyLast() { return this.text ? this.copy(this.text) : false; }
+
+  /** Runs a pending restore without waiting for its delay, for example before quit. */
+  async restoreNow() { await this.pendingRestore?.run(); }
 
   /** Forgets the last transcript after history deletes it, so Copy last cannot bring it back. */
   forget(text?: string) {
@@ -68,12 +74,13 @@ export class TranscriptDelivery {
     if (!('text' in result) || !result.text.trim()) return result;
     this.text = result.text;
     const target = this.target;
-    if (mode === 'never' && !target) return { ...result, delivery: 'not-copied' };
     // An earlier paste has had a whole recording's time to read its text, so its restore can run now.
-    await this.pendingRestore?.run();
-    // Only a paste can give the clipboard back. Without a saved copy, the transcript stays copied for manual paste.
+    await this.restoreNow();
+    // Only a paste can give the clipboard back. Without a saved copy, Never leaves the clipboard alone
+    // and If paste fails keeps the transcript copied for manual paste.
     const restore = mode !== 'always' && target ? await this.save() : undefined;
     if (revision !== this.generation) return { cancelled: true };
+    if (mode === 'never' && !restore) return { ...result, delivery: 'not-copied' };
     if (!await this.write(result.text)) return { ...result, delivery: 'clipboard-failed' };
     // A paste can still land after cancellation, so a cancelled delivery gives the clipboard back later too.
     const cancelled = (): TranscriptResult => {
@@ -126,7 +133,8 @@ export class TranscriptDelivery {
 
   /** Puts the earlier contents back unless something else replaced the transcript meanwhile. */
   private async restoreIfUnchanged(text: string, restore: () => MaybePromise<void>) {
-    try { if (await this.clipboard.readText() === text) await restore(); }
+    const copies = this.copies;
+    try { if (await this.clipboard.readText() === text && copies === this.copies) await restore(); }
     catch { /* The transcript stays copied, which is still recoverable. */ }
   }
 }
