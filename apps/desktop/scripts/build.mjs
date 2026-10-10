@@ -4,16 +4,20 @@ import { execFileSync } from 'node:child_process';
 import { copyFile, mkdir, stat } from 'node:fs/promises';
 import { platformFor } from '../src/main/platform.ts';
 
-// macOS: the keyboard helper reuses the native app's tested shortcut logic.
+// macOS: Electron cannot see Fn or key releases, so a small Swift helper handles shortcuts.
 const keyboardHelper = platformFor(process.platform).keyboardHelper;
 if (keyboardHelper) {
-  const sources = ['apps/macos/src/KeyboardShortcuts.swift', 'apps/desktop/native/macos/KeyboardHelper.swift'];
+  const sources = ['apps/desktop/native/macos/KeyboardShortcuts.swift', 'apps/desktop/native/macos/KeyboardHelper.swift'];
   const output = `target/release/${keyboardHelper}`;
   const built = await stat(output).then(file => file.mtimeMs, () => 0);
   const changed = await Promise.all(sources.map(async source => (await stat(source)).mtimeMs > built));
   if (changed.includes(true)) {
     await mkdir('target/release', { recursive: true });
-    execFileSync('swiftc', ['-j', '1', ...sources, '-o', output, '-framework', 'AppKit', '-framework', 'Carbon'], { stdio: 'inherit' });
+    // Without a target, swiftc builds for the macOS version of the build machine.
+    // Electron needs macOS 12 or later, so the helper starts on the same systems.
+    const target = `${process.arch === 'arm64' ? 'arm64' : 'x86_64'}-apple-macos12.0`;
+    execFileSync('swiftc', ['-j', '1', '-target', target, ...sources, '-o', output,
+      '-framework', 'AppKit', '-framework', 'Carbon'], { stdio: 'inherit' });
   }
 }
 

@@ -6,15 +6,15 @@
 
 web
 
-The portable app is Electron with a React renderer on Linux, macOS, and
-Windows. The native Swift app in `apps/macos/` is a separate, older client.
+One Electron app with a React renderer runs on Linux, macOS, and Windows. On
+macOS, a small Swift helper handles Fn shortcuts and paste.
 
 ## Users
 
 The first user is the maintainer, who dictates many times a day into editors,
 chat, and terminals. The app serves daily use first: start dictation, get the
-text into the field, and recover recent text fast. Open-source users who build
-the app themselves come second. Setup guidance appears only when something is
+text into the field, and recover recent text fast. Open-source users who install a
+GitHub release or build from source come second. Setup guidance appears only when something is
 missing.
 
 ## Product Purpose
@@ -39,16 +39,15 @@ independent of OpenAI and Wispr.
 
 ## Capabilities and Constraints
 
-- Portable app: hands-free recording, Retry, Copy last, docking, Codex folder
-  selection. Automatic paste works only on Linux X11 with `xdotool`.
-  macOS and Windows use manual paste for now.
+- All systems: hands-free recording, Retry, Copy last, docking, Codex folder
+  selection. Automatic paste works on macOS with Accessibility access and on
+  Linux X11 with `xdotool`. Windows and Wayland use manual paste for now.
 - Transcript history keeps text, time, length, and a coarse loudness shape.
   Audio is deleted after a successful transcription, as before.
 - Clipboard behavior is a setting: always keep the transcript, keep it only if
   paste fails (default), or never. Where the app cannot paste, "only if paste
   fails" keeps the transcript on the clipboard.
-- The portable app's shortcut defaults to Ctrl+Alt+Space and can be changed in
-  Settings. On macOS, Fn shortcuts replace it once Accessibility is allowed.
+- The shortcut defaults to Ctrl+Alt+Space and can be changed in Settings. On macOS, Fn shortcuts replace it once Accessibility is allowed.
 
 ## Brand Commitments
 
@@ -68,7 +67,7 @@ independent of OpenAI and Wispr.
 ## Product Principles
 
 1. Speed first: the common path is one shortcut or one click.
-2. Never lose text: every transcript stays recoverable until the user deletes it.
+2. Never lose text: recent transcripts stay recoverable until the user deletes them.
 3. Respect the clipboard: the user decides when einsager may replace it.
 4. Explain only what is missing: setup and errors appear when they apply.
 5. Stay local and honest: say where audio goes and what each platform cannot do.

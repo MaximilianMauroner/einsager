@@ -103,7 +103,7 @@ function ShortcutRows({ keyboard, fallback, api }: { keyboard: KeyboardState; fa
     {/* The reason for the disabled shortcuts comes first, so it stays in view when Settings scrolls. */}
     {!keyboard.trusted && <>
       <div className="row">
-        <span className="wrap">Allow Accessibility so einsager can see Fn. Until then, the fallback works.</span>
+        <span className="wrap">Allow Accessibility so einsager can see Fn and paste for you. Until then, use the fallback and paste by hand.</span>
         <button className="action" onClick={() => api?.shortcut({ command: 'prompt' })}>Allow…</button>
       </div>
       {fallback}
@@ -226,7 +226,7 @@ export function Panel() {
             <input type="radio" name="clipboard" checked={settings.clipboard === choice.mode} onChange={() => update({ clipboard: choice.mode })} />
             <b>{choice.label}</b><span>{choice.detail}</span>
           </label>)}
-          {!state.canPaste && <p className="note">einsager cannot paste by itself on this system yet, so “If paste fails” keeps the text copied.</p>}
+          {!state.canPaste && <p className="note">einsager cannot paste by itself right now, so “If paste fails” keeps the text copied.</p>}
         </fieldset>
         <div className="row">
           <span id="keep-history">Keep transcript history</span>
@@ -303,7 +303,7 @@ export function Panel() {
       {!settings.keepHistory && <p className="note">History is off. New transcripts are not saved.</p>}
       {settings.keepHistory && !filter && !history.length && !busy && <div className="empty">
         <p>What you say appears here.</p>
-        <p>Start below. Each transcript stays until you delete it.</p>
+        <p>Start below. The newest 500 transcripts stay until you delete them.</p>
       </div>}
       {filter && !visible.length && <p className="note">No transcript contains “{query?.trim()}”.</p>}
       <div className="rail">

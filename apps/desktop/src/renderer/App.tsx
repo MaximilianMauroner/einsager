@@ -17,6 +17,14 @@ function deliveryMessage(delivery: Delivery | undefined, pasteKey: string) {
   }
 }
 
+/** Only a denied permission needs the system settings. A missing or busy microphone does not. */
+function microphoneMessage(error: unknown) {
+  const name = error instanceof DOMException ? error.name : undefined;
+  if (name === 'NotFoundError') return 'No microphone found. Connect one, then start again.';
+  if (name === 'NotReadableError') return 'Microphone busy or unavailable. Start again.';
+  return 'Allow microphone access in your system settings, then start again.';
+}
+
 export function App() {
   const api = window.einsager;
   const [info, setInfo] = useState<DesktopInfo>({ edge: 'bottom', shortcut: DEFAULT_SHORTCUT, shortcutAvailable: true, pasteKey: 'Ctrl+V', canPositionWindow: true });
@@ -84,7 +92,7 @@ export function App() {
     catch { if (id === generation.current) change('failure', 'Could not transcribe. Start a new dictation.'); }
   }
   async function toggle() {
-    // The hands-free shortcut during a hold keeps recording without the key, as in the native app.
+    // The hands-free shortcut during a hold keeps recording without the key.
     if (mode.current === 'hold') { lockHandsFree(); return; }
     if (stateRef.current === 'recording') { await finish(); return; }
     if (['requesting', 'processing'].includes(stateRef.current)) return;
@@ -125,8 +133,8 @@ export function App() {
       recording.current = microphone;
       setSecondsLeft(undefined);
       change('recording');
-    } catch {
-      if (id === generation.current) change('failure', 'Allow microphone access in your system settings, then start again.');
+    } catch (error) {
+      if (id === generation.current) change('failure', microphoneMessage(error));
     }
   }
   async function retry() {
@@ -146,21 +154,23 @@ export function App() {
     else feedback('No transcript on the clipboard. Start a new dictation.');
   }
 
+  // Fetch once, then follow pushes. A second fetch could answer after a newer push and undo it.
   useEffect(() => {
     void api?.info().then(setInfo);
-    const action = api?.onAction(value => {
-      if (value === 'toggle') void toggle();
-      if (value === 'finish') void finish();
-      if (value === 'hold-pressed') holdPressed();
-      if (value === 'hold-released') holdReleased();
-      if (value === 'hold-interrupted' && mode.current === 'hold') void cancel();
-      if (value === 'cancel') void cancel();
-      if (value === 'retry') void retry();
-      if (value === 'copy') void copy();
-    });
-    const updates = api?.onInfo(setInfo);
-    return () => { action?.(); updates?.(); };
-  }, [api, info.pasteKey]);
+    return api?.onInfo(setInfo);
+  }, [api]);
+
+  // The handlers read the current paste key, so they are replaced when it changes.
+  useEffect(() => api?.onAction(value => {
+    if (value === 'toggle') void toggle();
+    if (value === 'finish') void finish();
+    if (value === 'hold-pressed') holdPressed();
+    if (value === 'hold-released') holdReleased();
+    if (value === 'hold-interrupted' && mode.current === 'hold') void cancel();
+    if (value === 'cancel') void cancel();
+    if (value === 'retry') void retry();
+    if (value === 'copy') void copy();
+  }), [api, info.pasteKey]);
 
   // Only the pill has microphone permission, so it lists the inputs for the panel's Settings.
   useEffect(() => {

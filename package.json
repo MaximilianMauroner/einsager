@@ -1,6 +1,6 @@
 {
   "name": "einsager",
-  "version": "0.3.0",
+  "version": "0.1.0",
   "private": true,
   "packageManager": "pnpm@11.28.2",
   "type": "module",
@@ -18,7 +18,8 @@
     "preview": "vite --host 0.0.0.0 --config apps/desktop/vite.config.ts",
     "test:desktop": "node apps/desktop/tests/smoke.mjs",
     "test:packaged": "node apps/desktop/tests/smoke.mjs --packaged",
-    "test:linux": "node apps/desktop/tests/linux-desktop.mjs && node apps/desktop/tests/smoke.mjs --wayland-policy"
+    "test:linux": "node apps/desktop/tests/linux-desktop.mjs && node apps/desktop/tests/smoke.mjs --wayland-policy",
+    "test:macos": "mkdir -p target/tests && swiftc -j 1 apps/desktop/native/macos/KeyboardShortcuts.swift apps/desktop/native/macos/tests/ShortcutTests.swift -o target/tests/shortcut-tests -framework AppKit && target/tests/shortcut-tests"
   },
   "dependencies": {
     "react": "19.3.0",

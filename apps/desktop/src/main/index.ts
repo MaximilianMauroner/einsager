@@ -18,7 +18,8 @@ import { MacKeyboard } from './keyboard';
 
 const platform = platformFor(process.platform);
 const linux = process.platform === 'linux' ? new LinuxDesktop() : undefined;
-const delivery = new TranscriptDelivery(systemClipboard(clipboard, ClipboardItem), linux ? signal => linux.captureTarget(signal) : undefined);
+// Linux pastes with xdotool and macOS through the keyboard helper. Windows users paste by hand.
+const delivery = new TranscriptDelivery(systemClipboard(clipboard, ClipboardItem), async signal => (linux ?? keyboard)?.captureTarget(signal));
 app.commandLine.appendSwitch('enable-features', 'GlobalShortcutsPortal');
 /** Lets focus return to the editor before the pill captures or checks the paste target. */
 const PANEL_FOCUS_RETURN_MS = 150;
@@ -161,7 +162,7 @@ function panelState(): PanelState {
   return {
     status, history: [...history.entries], settings: editable,
     codexFolder: codexFolder(), customCodexFolder: Boolean(settings.codexHome), microphones,
-    shortcutAvailable, canPaste: linux?.canPaste ?? false,
+    shortcutAvailable, canPaste: linux?.canPaste ?? keyboardState?.trusted ?? false,
     canPositionWindow: linux?.canPositionWindow !== false, desktopNotice: linux?.notice, keyboard: keyboardState,
   };
 }
@@ -175,9 +176,11 @@ function publish() {
 function openPanel() { panel.show(tray.getBounds()); }
 
 /** Escape cancels a session from anywhere, except inside the focused panel or its dialog, which use it to close. */
+/** Escape is global only while audio is recorded or uploaded. A failure can wait, so other apps keep their Escape key. */
 function updateEscape() {
   globalShortcut.unregister('Escape');
-  if (status.state !== 'idle' && !panel.window.isFocused() && !panel.holdingOpen) globalShortcut.register('Escape', () => send('cancel'));
+  const active = status.state === 'requesting' || status.state === 'recording' || status.state === 'processing';
+  if (active && !panel.window.isFocused() && !panel.holdingOpen) globalShortcut.register('Escape', () => send('cancel'));
 }
 
 function actionMenu() {

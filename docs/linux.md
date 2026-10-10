@@ -1,10 +1,33 @@
-# Linux desktop integration
+# Linux setup and limits
 
-The portable app uses Chromium for microphone recording and Electron for its
-clipboard, pill, tray, and shortcuts. Linux-specific behavior belongs in
+einsager uses Chromium for microphone recording and Electron for its clipboard,
+pill, tray, and shortcuts. Linux-specific code is in
 [`apps/desktop/src/main/linux/desktop.ts`](../apps/desktop/src/main/linux/desktop.ts).
-The shared transcription helper uses `CODEX_HOME` or `~/.codex` for a file-based
-Codex login. [Build and login setup](cross-platform.md) applies to Linux too.
+The [usage guide](usage.md) covers the Codex login, settings, and data handling.
+
+## Install
+
+The release build needs an x64 system with glibc 2.34 or later, for example
+Ubuntu 22.04, Debian 12, or Fedora 35 and later. On other systems, build from
+source.
+
+Extract the release, give Chromium's sandbox helper to root, and start the app:
+
+```sh
+tar -xzf einsager-*-linux-x64.tar.gz
+cd einsager-linux-x64
+sudo chown root:root chrome-sandbox
+sudo chmod 4755 chrome-sandbox
+./einsager
+```
+
+Do the two `sudo` steps after you move the folder to its final place. Ubuntu
+23.10 and later, and other distributions with similar AppArmor rules, block the
+user namespaces that Chromium's sandbox otherwise uses. Without the root-owned
+helper, einsager stops at once with "The SUID sandbox helper binary was found,
+but is not configured correctly". einsager itself runs as your user. Do not
+start it with `--no-sandbox`: that turns off Chromium's protection for the
+app's web content.
 
 ## X11
 
@@ -15,7 +38,7 @@ Debian/Ubuntu:
 sudo apt-get install xdotool
 ```
 
-Restart Einsager after installing it. No elevated permission is used by the app.
+Restart einsager after you install it. The app uses no other elevated permission.
 Without this optional tool, dictation still records. The transcript is copied
 unless the clipboard setting is **Never**.
 The tray menu, the pill's context menu, and the tray panel's Settings explain

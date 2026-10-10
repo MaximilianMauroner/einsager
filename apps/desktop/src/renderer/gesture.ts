@@ -5,7 +5,7 @@ type GestureStep = 'begin-hold' | 'begin-hands-free' | 'lock' | 'finish' | 'canc
 const TAP_SECONDS = 0.5;
 
 /**
- * Hold-key timing, as in the native app's DictationSession: hold to talk, release to transcribe,
+ * Hold-key timing: hold to talk, release to transcribe,
  * double tap to lock hands-free, triple tap to cancel. Times are in seconds.
  */
 export class HoldGesture {
