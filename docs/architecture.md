@@ -8,6 +8,7 @@ app directory for a UI change, or the Rust crate for a login or upload change.
 | Directory | Language and runtime | Platforms | Owns |
 |---|---|---|---|
 | [`apps/macos/src/`](../apps/macos/src/) | Swift, AppKit, AVFoundation, Carbon | macOS | Native UI, recording, Fn/hold shortcuts, focus checks, clipboard, and paste |
+| [`apps/desktop/native/macos/`](../apps/desktop/native/macos/) | Swift, Carbon event tap, child process | macOS | Fn and custom shortcuts for the portable app, built from the native `KeyboardShortcuts.swift` |
 | [`apps/desktop/src/main/`](../apps/desktop/src/main/) | TypeScript, Electron main process, Node.js | Linux, macOS, Windows | Window, tray, shortcuts, settings, clipboard delivery, trusted IPC, and helper process |
 | [`apps/desktop/src/main/linux/`](../apps/desktop/src/main/linux/) | TypeScript, Node.js, optional xdotool | Linux | X11/Wayland detection, desktop capabilities, focused window capture, targeted paste |
 | [`apps/desktop/src/renderer/`](../apps/desktop/src/renderer/) | TypeScript, React, Chromium browser APIs | Linux, macOS, Windows | Pill UI, visible session, microphone capture, and WAV encoding |
@@ -64,6 +65,7 @@ small OS policy module so it bundles the filename the host will launch.
 | Portable window, tray, settings, and IPC | `apps/desktop/src/main/index.ts` |
 | Portable tray panel: history, settings, and session view | `apps/desktop/src/renderer/Panel.tsx`, window in `apps/desktop/src/main/panel.ts` |
 | Portable transcript history and stored settings | `apps/desktop/src/main/history.ts`, `apps/desktop/src/main/settings.ts` |
+| Portable macOS Fn and custom shortcuts | `apps/desktop/native/macos/KeyboardHelper.swift`, owner in `apps/desktop/src/main/keyboard.ts`, timing in `apps/desktop/src/renderer/gesture.ts` |
 | Portable docking coordinates | `apps/desktop/src/main/placement.ts` |
 | Portable temporary audio, helper cancellation, and Retry | `apps/desktop/src/main/transcription.ts` |
 | Portable OS differences | `apps/desktop/src/main/platform.ts` |
@@ -96,9 +98,10 @@ helper uses the OS home-directory API for login discovery. Only its Unix CLI
 fallback test overrides `HOME`; Windows fallback tests use injected paths.
 
 AppKit remains active during migration. The portable client supports hands-free
-recording and clipboard recovery, plus X11 paste attempts on Linux. Native
-hold/Fn gestures, exact-field focus checks, and the
-20-minute AAC path remain native Mac features. See [portable limits](cross-platform.md).
+recording and clipboard recovery, plus X11 paste attempts on Linux and Fn
+hold-to-talk on macOS. Its macOS keyboard helper compiles the native app's
+`KeyboardShortcuts.swift`, so that file stays when the AppKit UI is removed.
+Exact-field focus checks and the 20-minute AAC path remain native Mac features. See [portable limits](cross-platform.md).
 
 ## CPU architectures and build outputs
 

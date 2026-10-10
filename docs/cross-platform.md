@@ -52,10 +52,17 @@ Audio still goes to ChatGPT's internal transcription endpoint, not a local model
 ## Controls and current limits
 
 Click the pill or press **Ctrl+Alt+Space** to start or finish hands-free
-recording. Click the check to finish; the cross cancels. Escape is registered
+recording. On macOS, hold **Fn** to talk and release it to transcribe, press
+**Fn+Space** for hands-free, or double-tap **Fn** to keep recording without the
+key; a third quick tap cancels. These Fn shortcuts need Accessibility access for
+einsager: use **Allow…** in Settings. Until then, Ctrl+Alt+Space still works.
+Change either macOS shortcut in Settings: click it, press the new keys, and
+release them. Esc cancels the change, and **Reset to Fn** restores the defaults.
+Click the check to finish; the cross cancels. Escape is registered
 only during a session. While the tray panel has focus, Escape closes its search,
 its Settings, or the panel instead. Dock at top, bottom, left, or right in
-Settings, or drag the pill to an edge.
+Settings, or drag the pill to an edge. Turn off **Show pill when idle** to hide
+the pill between dictations; it still appears for a recording or a result.
 
 Click the tray icon to open the tray panel. It shows past transcripts, newest at
 the bottom, with Copy, Delete, and search. A recording in progress or a failed
@@ -98,8 +105,11 @@ partial file and disables Retry; fix the storage problem and start a new dictati
 
 Portable recording is 16 kHz, 16-bit mono WAV, capped at 10 minutes so it stays
 below the helper's 25 MiB upload limit. Native Mac recording retains the verified
-20-minute AAC path. Global hold/release, Fn double/triple taps, portable Mac/Windows
-automatic paste, and equivalent input/permission behavior remain migration work.
+20-minute AAC path. On macOS, `apps/desktop/native/macos/KeyboardHelper.swift`
+runs the native app's shortcut logic in an event tap, because Electron cannot see
+Fn or key releases. It stores custom shortcuts in its own `local.max.einsager.keys`
+defaults. Hold-to-talk on Linux and Windows, automatic paste on macOS and Windows,
+and equivalent permission behavior remain migration work.
 On Wayland, shortcuts use Electron's portal integration when the desktop supports
 it. The compositor owns window placement, so docking and dragging are disabled;
 the pill still resizes for its controls and labels. Clicking the pill and manual
