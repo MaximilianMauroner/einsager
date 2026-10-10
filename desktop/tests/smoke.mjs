@@ -61,6 +61,13 @@ try {
     }));
   }, info);
   await page.addInitScript(() => {
+    window.testAudioCallbacks = 0;
+    const createProcessor = AudioContext.prototype.createScriptProcessor;
+    AudioContext.prototype.createScriptProcessor = function (...args) {
+      const processor = createProcessor.apply(this, args);
+      processor.addEventListener('audioprocess', () => { window.testAudioCallbacks++; });
+      return processor;
+    };
     const getUserMedia = navigator.mediaDevices.getUserMedia.bind(navigator.mediaDevices);
     navigator.mediaDevices.getUserMedia = async constraints => {
       const stream = await getUserMedia(constraints);
@@ -75,15 +82,46 @@ try {
   });
   await page.getByRole('button', { name: 'Finish dictation' }).waitFor();
   assert.equal(await page.evaluate(() => window.testMicrophoneStream.getAudioTracks()[0].readyState), 'live');
+  const callbacks = await page.evaluate(() => window.testAudioCallbacks);
   await application.evaluate(() => { globalThis.completeTestInfo(); delete globalThis.completeTestInfo; });
-  await expect.poll(() => page.evaluate(() => document.querySelector('.waveform i').style.height))
-    .not.toBe('2.25px');
+  await expect.poll(() => page.evaluate(() => window.testAudioCallbacks)).toBeGreaterThan(callbacks + 2);
   assert.equal(await page.evaluate(() => window.testMicrophoneStream.getAudioTracks()[0].readyState), 'live',
     'A late Mac paste-key response must leave the microphone running');
   await page.getByRole('button', { name: 'Cancel dictation' }).click();
   await expect.poll(() => page.evaluate(() => window.testMicrophoneStream.getAudioTracks()[0].readyState)).toBe('ended');
+
+  // Exercise renderer sizing, IPC placement, and side alignment together.
+  const pill = page.locator('.pill');
+  for (const edge of ['left', 'right']) {
+    await pill.dispatchEvent('mouseout', { relatedTarget: null });
+    await page.locator('.pill.handle').waitFor();
+    const shift = await application.evaluate(({ BrowserWindow, screen }, edge) => {
+      const bounds = BrowserWindow.getAllWindows()[0].getBounds();
+      const area = screen.getDisplayMatching(bounds).workArea;
+      const x = edge === 'left' ? area.x + 12 : area.x + area.width - bounds.width - 12;
+      return { dx: x - bounds.x, dy: area.y + area.height / 2 - bounds.y };
+    }, edge);
+    await page.evaluate(({ dx, dy }) => window.einsager.drag(dx, dy, true), shift);
+    await page.locator(`.surface.${edge}`).waitFor();
+    const position = async () => {
+      const rect = await pill.boundingBox();
+      assert.ok(rect);
+      const bounds = await application.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].getBounds());
+      return {
+        y: bounds.y + rect.y + rect.height / 2,
+        x: bounds.x + rect.x + (edge === 'right' ? rect.width : 0),
+      };
+    };
+    const idle = await position();
+    await pill.dispatchEvent('mouseover', { relatedTarget: null });
+    await page.getByRole('status').waitFor();
+    // Native bounds round to whole points; CSS label widths can be fractional.
+    await expect.poll(async () => Math.abs((await position()).y - idle.y)).toBeLessThanOrEqual(1);
+    await expect.poll(async () => Math.abs((await position()).x - idle.x)).toBeLessThanOrEqual(1);
+    await page.screenshot({ path: `.agents/artifacts/${evidence}-${edge}-hover.png`, omitBackground: true });
+  }
   assert.deepEqual(errors, []);
-  console.log(`${evidence}: launch, recording, safe Copy action, login error, Retry, delayed Mac info, and cancellation passed. No request sent.`);
+  console.log(`${evidence}: launch, recording, safe Copy action, login error, Retry, delayed Mac info, cancellation, and side docking passed. No request sent.`);
 } finally {
   await application?.close();
   await rm(directory, { recursive: true, force: true });

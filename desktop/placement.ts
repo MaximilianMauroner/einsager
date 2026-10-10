@@ -2,11 +2,12 @@ import type { DockEdge } from './contract.ts';
 
 export interface Rectangle { x: number; y: number; width: number; height: number }
 
-export function dockFrame(size: { width: number; height: number }, area: Rectangle, edge: DockEdge): Rectangle {
+export function dockFrame(size: { width: number; height: number }, area: Rectangle, edge: DockEdge, pillHeight: number): Rectangle {
   const width = Math.min(size.width, area.width);
   const height = Math.min(size.height, area.height);
   const centeredX = area.x + (area.width - width) / 2;
-  const centeredY = area.y + (area.height - height) / 2;
+  // Side labels sit above the pill. Keep the pill's center under the pointer.
+  const centeredY = area.y + area.height / 2 - height + Math.min(pillHeight, height) / 2;
   const positions = {
     bottom: { x: centeredX, y: area.y + area.height - height - 12 },
     top: { x: centeredX, y: area.y + 12 },

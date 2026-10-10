@@ -103,7 +103,8 @@ pnpm test:packaged
 
 The desktop smoke test uses a fake microphone and an empty Codex folder. It
 checks development and packaged launch, recording, the helper's missing-login
-error, Retry, cancel, safe tray Copy, and a delayed Mac settings response
+error, Retry, cancel, safe tray Copy, a delayed Mac settings response, and side
+docking through renderer sizing and IPC
 without a real login or network transcription. Unit tests verify PCM/WAV output,
 the upload-size bound, docking, process cancellation, and retained-audio Retry.
 Tests with injected fixture helpers verify transcription delivery without
@@ -130,7 +131,14 @@ passed. The first CI run also passed Linux and Mac builds, then found an obsolet
 Packager default import. Fixing that reached pnpm's dependency-tree incompatibility
 in a local packaging run. Packaging now stages only compiled bundles, the MIT
 license, and a minimal runtime manifest; development dependencies are bundled
-at build time. Packaging and both launch checks still need completion.
+at build time. The next CI run passed Linux and Windows packaging and both launch
+checks. Mac packaging and development launch passed; packaged launch reached
+recording, Retry, and cancel, then failed a waveform-height assertion. The
+delayed-info check now verifies continuing audio callbacks and a live microphone
+track directly, because a steady fake signal can leave the adaptive waveform
+flat. Side docking now anchors the pill's center and aligns it to the selected
+edge when labels expand. Unit and smoke regressions cover these changes. The
+updated three-OS CI and native Mac checks still need completion.
 No live Codex credentials were read or changed, and no
 transcription request was made in this work.
 

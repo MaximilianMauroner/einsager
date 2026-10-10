@@ -17,6 +17,7 @@ let shortcutAvailable = false;
 let lastText = '';
 let transcription: TranscriptionSession;
 let dragOrigin: Electron.Rectangle | undefined;
+let pillHeight = 8;
 let quitting = false;
 
 const rendererFile = join(__dirname, 'renderer', 'index.html');
@@ -26,7 +27,7 @@ const settingsFile = () => join(app.getPath('userData'), 'settings.json');
 function send(action: DesktopAction) { window.webContents.send('action', action); }
 function reposition() {
   const display = screen.getDisplayMatching(window.getBounds());
-  window.setBounds(dockFrame(window.getBounds(), display.workArea, edge));
+  window.setBounds(dockFrame(window.getBounds(), display.workArea, edge, pillHeight));
 }
 
 async function saveSettings() {
@@ -102,9 +103,11 @@ function installIPC() {
     globalShortcut.unregister('Escape');
     if (value === true) globalShortcut.register('Escape', () => send('cancel'));
   });
-  ipcMain.on('resize', (event, width: unknown, height: unknown) => {
+  ipcMain.on('resize', (event, width: unknown, height: unknown, measuredPillHeight: unknown) => {
     trusted(event);
-    if (typeof width !== 'number' || typeof height !== 'number' || !Number.isFinite(width + height)) return;
+    if (typeof width !== 'number' || typeof height !== 'number' || typeof measuredPillHeight !== 'number'
+      || !Number.isFinite(width + height + measuredPillHeight)) return;
+    pillHeight = Math.min(28, Math.max(8, measuredPillHeight));
     window.setSize(Math.round(Math.min(420, Math.max(40, width))), Math.round(Math.min(180, Math.max(8, height))));
     reposition();
   });

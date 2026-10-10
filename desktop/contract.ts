@@ -15,7 +15,7 @@ export interface DesktopBridge {
   retry(): Promise<TranscriptResult>;
   cancel(): Promise<void>;
   copyLast(): Promise<boolean>;
-  resize(width: number, height: number): void;
+  resize(width: number, height: number, pillHeight: number): void;
   drag(dx: number, dy: number, finished: boolean): void;
   menu(): void;
   active(value: boolean): void;

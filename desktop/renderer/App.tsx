@@ -124,7 +124,8 @@ export function App() {
   useLayoutEffect(() => {
     const observer = new ResizeObserver(entries => {
       const { width, height } = entries[0].contentRect;
-      api?.resize(Math.ceil(width), Math.ceil(height));
+      const pillHeight = container.current?.querySelector('.pill')?.getBoundingClientRect().height ?? 8;
+      api?.resize(Math.ceil(width), Math.ceil(height), pillHeight);
     });
     if (container.current) observer.observe(container.current);
     return () => observer.disconnect();
@@ -135,7 +136,7 @@ export function App() {
   const label = message || (state === 'idle' && hovered ? `Click or press ${info.shortcut} to dictate` : '')
     || (secondsLeft !== undefined && state === 'recording' ? `Recording stops in ${secondsLeft}s` : '');
 
-  return <div ref={container} className={`surface ${info.edge === 'top' ? 'top' : ''}`} onContextMenu={event => { event.preventDefault(); api?.menu(); }}>
+  return <div ref={container} className={`surface ${info.edge}`} onContextMenu={event => { event.preventDefault(); api?.menu(); }}>
     {label && <div className="label" role="status"><span>{label}</span>
       {state === 'failure' && <button disabled={!canRetry} onClick={() => void retry()}>Retry</button>}
       {state === 'message' && canCopy && <button onClick={() => void copy()}>Copy last</button>}
