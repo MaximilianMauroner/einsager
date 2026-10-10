@@ -18,7 +18,7 @@ function deliveryMessage(delivery: Delivery | undefined, pasteKey: string) {
 
 export function App() {
   const api = window.einsager;
-  const [info, setInfo] = useState<DesktopInfo>({ edge: 'bottom', shortcut: 'Ctrl+Alt+Space', showPill: true, shortcutAvailable: true, pasteKey: 'Ctrl+V', canPositionWindow: true });
+  const [info, setInfo] = useState<DesktopInfo>({ edge: 'bottom', shortcut: 'Ctrl+Alt+Space', shortcutAvailable: true, pasteKey: 'Ctrl+V', canPositionWindow: true });
   const [state, setState] = useState<State>('idle');
   const [message, setMessage] = useState('');
   const [hovered, setHovered] = useState(false);

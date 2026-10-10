@@ -2,7 +2,7 @@ import { spawn, type ChildProcess } from 'node:child_process';
 import { createInterface } from 'node:readline';
 import type { KeyboardCommand, KeyboardState } from '../shared/contract.ts';
 
-export type KeyboardAction = 'holdPressed' | 'holdReleased' | 'toggle' | 'interrupted';
+type KeyboardAction = 'holdPressed' | 'holdReleased' | 'toggle' | 'interrupted';
 type Message = { event: 'state'; state: KeyboardState } | { event: 'action'; action: KeyboardAction };
 
 const actions: readonly KeyboardAction[] = ['holdPressed', 'holdReleased', 'toggle', 'interrupted'];
@@ -43,7 +43,9 @@ export class MacKeyboard {
     // A missing or crashed helper leaves the Electron fallback shortcut in charge.
     child.on('error', () => this.stopped(child));
     child.on('exit', () => this.stopped(child));
-    createInterface({ input: child.stdout! }).on('line', line => {
+    // A write after the helper dies fails with EPIPE; 'exit' already reports the fallback.
+    child.stdin.on('error', () => {});
+    createInterface({ input: child.stdout }).on('line', line => {
       const message = parseHelperLine(line);
       if (message?.event === 'state') this.onState(message.state);
       if (message?.event === 'action') this.onAction(message.action);

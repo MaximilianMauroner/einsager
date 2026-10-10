@@ -90,8 +90,8 @@ function applyShortcuts() {
 
 function info(): DesktopInfo {
   const native = keyboardState?.trusted ? keyboardState : undefined;
-  return { edge: settings.edge, shortcut: native?.handsFree ?? 'Ctrl+Alt+Space', holdKey: native?.hold, showPill: settings.showPill,
-    shortcutAvailable, pasteKey: platform.pasteKey, canPositionWindow: linux?.canPositionWindow !== false, desktopNotice: linux?.notice };
+  return { edge: settings.edge, shortcut: native?.handsFree ?? 'Ctrl+Alt+Space', holdKey: native?.hold, shortcutAvailable,
+    pasteKey: platform.pasteKey, canPositionWindow: linux?.canPositionWindow !== false, desktopNotice: linux?.notice };
 }
 
 function pushInfo() { window.webContents.send('info', info()); }
@@ -282,7 +282,6 @@ function installIPC() {
     settings = next;
     if (edgeChanged) setEdge(next.edge);
     updatePill();
-    pushInfo();
     await saveSettings();
     publish();
   });
@@ -365,7 +364,8 @@ async function start() {
 
 if (!app.requestSingleInstanceLock()) app.quit();
 else {
-  app.on('second-instance', () => window?.showInactive());
+  // Launching einsager again opens the panel once startup has made it; the pill keeps its idle setting.
+  app.on('second-instance', () => { if (tray) openPanel(); });
   app.on('before-quit', event => {
     if (quitting) return;
     event.preventDefault();

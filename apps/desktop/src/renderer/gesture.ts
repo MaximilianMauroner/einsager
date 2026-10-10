@@ -1,5 +1,5 @@
 export type RecordingMode = 'hold' | 'handsFree';
-export type GestureStep = 'begin-hold' | 'begin-hands-free' | 'lock' | 'finish' | 'cancel' | 'none';
+type GestureStep = 'begin-hold' | 'begin-hands-free' | 'lock' | 'finish' | 'cancel' | 'none';
 
 /** Presses closer together than this count as one tap sequence; shorter holds count as taps. */
 const TAP_SECONDS = 0.5;

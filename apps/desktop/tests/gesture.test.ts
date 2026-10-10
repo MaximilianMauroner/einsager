@@ -2,6 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { HoldGesture } from '../src/renderer/gesture.ts';
 import { parseHelperLine } from '../src/main/keyboard.ts';
+import { keyCaps } from '../src/renderer/keys.ts';
 
 test('holding the key talks; releasing it transcribes; a short tap discards', () => {
   const gesture = new HoldGesture();
@@ -43,4 +44,12 @@ test('helper lines become typed states and actions; anything else is ignored', (
   for (const line of ['', 'not json', '{"event":"action","action":"rm -rf"}', '{"event":"state","trusted":"yes","hold":"Fn","handsFree":"Fn+Space"}', '[]']) {
     assert.equal(parseHelperLine(line), undefined, line);
   }
+});
+
+test('shortcut names become one key cap per key, including the + key', () => {
+  const cases: [string, string[]][] = [
+    ['Fn', ['Fn']], ['Fn+Space', ['Fn', 'Space']], ['⌃⌥K', ['⌃', '⌥', 'K']], ['⌃+', ['⌃', '+']], ['Fn++', ['Fn', '+']],
+    ['⌃Fn+Space', ['⌃', 'Fn', 'Space']], ['Ctrl+Alt+Space', ['Ctrl', 'Alt', 'Space']],
+  ];
+  for (const [name, caps] of cases) assert.deepEqual(keyCaps(name), caps, name);
 });

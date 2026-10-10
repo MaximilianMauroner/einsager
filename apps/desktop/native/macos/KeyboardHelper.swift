@@ -35,6 +35,8 @@ final class KeyboardHelper {
         }
         installTap()
         if tap == nil { waitForTrust() }
+        _ = NSWorkspace.shared.notificationCenter.addObserver(forName: NSWorkspace.didActivateApplicationNotification,
+            object: nil, queue: .main) { [weak self] _ in self?.checkTrust() }
         report()
     }
 
@@ -56,6 +58,8 @@ final class KeyboardHelper {
             capturing = target == "hold"
             pendingModifiers = []
             problem = nil
+            // Capture keeps every key from the input, including the release of a key held now.
+            discardInput()
         case "stopCapture":
             capturing = nil
             problem = nil
@@ -63,11 +67,10 @@ final class KeyboardHelper {
             capturing = nil
             problem = nil
             settings.reset()
-            input.reset()
+            discardInput()
         case "prompt":
             let options = [kAXTrustedCheckOptionPrompt.takeUnretainedValue() as String: true] as CFDictionary
             _ = AXIsProcessTrustedWithOptions(options)
-            waitForTrust()
         default:
             return
         }
@@ -102,11 +105,30 @@ final class KeyboardHelper {
         }
     }
 
+    /// Accessibility can be revoked while the tap runs. An app switch is a cheap moment to notice,
+    /// so the app's fallback shortcut takes over again until access returns.
+    private func checkTrust() {
+        guard let tap = tap, !AXIsProcessTrusted() else { return }
+        // Invalidating the port also invalidates its run-loop source.
+        CFMachPortInvalidate(tap)
+        self.tap = nil
+        capturing = nil
+        problem = nil
+        discardInput()
+        report()
+        waitForTrust()
+    }
+
+    /// Forgets held keys. A held key's release can no longer end its hold, so the app cancels the hold.
+    private func discardInput() {
+        input.reset()
+        emit(action: "interrupted")
+    }
+
     private func handle(_ type: CGEventType, event: CGEvent) -> Unmanaged<CGEvent>? {
         if type == .tapDisabledByTimeout || type == .tapDisabledByUserInput {
             if let tap = tap { CGEvent.tapEnable(tap: tap, enable: true) }
-            input.reset()
-            emit(action: "interrupted")
+            discardInput()
             return Unmanaged.passUnretained(event)
         }
         let keyCode = UInt16(event.getIntegerValueField(.keyboardEventKeycode))
@@ -161,7 +183,6 @@ final class KeyboardHelper {
         } else {
             capturing = nil
             problem = nil
-            input.reset()
         }
         report()
     }

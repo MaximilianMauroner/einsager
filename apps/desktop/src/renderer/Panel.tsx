@@ -1,5 +1,6 @@
 import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
 import type { ClipboardMode, DockEdge, HistoryEntry, KeyboardState, PanelBridge, PanelSettings, PanelState, SessionStatus } from '../shared/contract';
+import { keyCaps } from './keys';
 
 declare global { interface Window { einsagerPanel?: PanelBridge } }
 
@@ -38,13 +39,11 @@ function Icon({ name }: { name: keyof typeof icons }) {
   return <svg className="icon" viewBox="0 0 16 16" aria-hidden="true">{icons[name]}</svg>;
 }
 
-/** "Fn+Space" and "⌃⌥K" become one key cap per key. */
 function Keys({ shortcut }: { shortcut: string }) {
-  const keys = shortcut.split('+').flatMap(part => [...(part.match(/^[⌃⌥⇧⌘]*/)?.[0] ?? '')].concat(part.replace(/^[⌃⌥⇧⌘]*/, '') || []));
-  return <span className="keys">{keys.map((key, index) => <kbd key={index}>{key}</kbd>)}</span>;
+  return <span className="keys">{keyCaps(shortcut).map((key, index) => <kbd key={index}>{key}</kbd>)}</span>;
 }
 
-function ShortcutRows({ keyboard, api }: { keyboard: KeyboardState; api?: PanelBridge }) {
+function ShortcutRows({ keyboard, shortcutAvailable, api }: { keyboard: KeyboardState; shortcutAvailable: boolean; api?: PanelBridge }) {
   const row = (target: 'hold' | 'handsFree', label: string) => {
     const capturing = keyboard.capturing === target;
     return <div className="row">
@@ -65,7 +64,7 @@ function ShortcutRows({ keyboard, api }: { keyboard: KeyboardState; api?: PanelB
     {keyboard.capturing && <p className="note inset">Press the new keys, then release them. Esc cancels.</p>}
     {keyboard.error && <p className="note inset alarm">{keyboard.error}</p>}
     {!keyboard.trusted && <div className="row">
-      <span className="wrap">Allow Accessibility so einsager can see Fn. Ctrl+Alt+Space works until then.</span>
+      <span className="wrap">Allow Accessibility so einsager can see Fn. {shortcutAvailable ? 'Ctrl+Alt+Space works until then.' : 'Another app uses Ctrl+Alt+Space.'}</span>
       <button className="action" onClick={() => api?.shortcut({ command: 'prompt' })}>Allow…</button>
     </div>}
   </>;
@@ -195,7 +194,7 @@ export function Panel() {
         <button className="row" onClick={() => void api?.chooseCodexHome()}>
           <span>Codex login folder</span><span className="value"><span className="path">{state.codexFolder}</span><Icon name="right" /></span>
         </button>
-        {state.keyboard ? <ShortcutRows keyboard={state.keyboard} api={api} /> : <div className="row">
+        {state.keyboard ? <ShortcutRows keyboard={state.keyboard} shortcutAvailable={state.shortcutAvailable} api={api} /> : <div className="row">
           <span>Shortcut</span>
           <span className="value">{!state.shortcutAvailable && 'In use by another app'}<Keys shortcut={state.shortcut} /></span>
         </div>}

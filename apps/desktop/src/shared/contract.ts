@@ -12,7 +12,6 @@ export interface DesktopInfo {
   shortcut: string;
   /** The hold-to-talk key, when the macOS keyboard helper is active. */
   holdKey?: string;
-  showPill: boolean;
   shortcutAvailable: boolean;
   pasteKey: string;
   canPositionWindow: boolean;
