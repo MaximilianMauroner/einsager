@@ -16,8 +16,6 @@ final class DictationApp: NSObject, NSApplicationDelegate {
     private var stopTimer: Timer?
     private var messageTimer: Timer?
     private var pasteWork: DispatchWorkItem?
-    private var restoreWork: DispatchWorkItem?
-    private var clipboardLease: ClipboardLease?
     private var hotkeys: [EventHotKeyRef] = []
     private var pressedHotkeys: Set<UInt32> = []
     private let shortcuts = ShortcutSettings()
@@ -33,12 +31,18 @@ final class DictationApp: NSObject, NSApplicationDelegate {
     private var hotkeyHandler: EventHandlerRef?
     private var eventTap: CFMachPort?
     private var eventSource: CFRunLoopSource?
+    private var keyboardObserver: NSObjectProtocol?
+    /// Whether the registered shortcuts rely on the event tap rather than the Carbon fallback.
+    private var tapShortcutsActive = false
+    private var keyboardReady: Bool { eventTap.map { CGEvent.tapIsEnabled(tap: $0) } ?? false }
     private var isTerminating = false
     private var heardAudio = false
+    private var microphoneLevel = MicrophoneLevel()
     private var action: NSMenuItem!
     private var retryItem: NSMenuItem!
     private var copyItem: NSMenuItem!
     private var keyboardItem: NSMenuItem!
+    private var barVisibilityItem: NSMenuItem!
     private let recordingLimit: TimeInterval = 20 * 60
 
     func applicationDidFinishLaunching(_ notification: Notification) {
@@ -58,12 +62,13 @@ final class DictationApp: NSObject, NSApplicationDelegate {
         menu.addItem(withTitle: "Allow automatic paste…", action: #selector(requestAccessibility), keyEquivalent: "")
         keyboardItem = menu.addItem(withTitle: "Enable hold-to-talk…", action: #selector(enableKeyboard), keyEquivalent: "")
         shortcutsItem = menu.addItem(withTitle: "Customize shortcuts…", action: #selector(editShortcuts), keyEquivalent: "")
+        barVisibilityItem = menu.addItem(withTitle: "Show bar at all times", action: #selector(toggleBarVisibility), keyEquivalent: "")
         menu.addItem(.separator())
         menu.addItem(withTitle: "Quit", action: #selector(quit), keyEquivalent: "q")
         menu.autoenablesItems = false
         for entry in menu.items { entry.target = self }
         item.menu = menu
-        bar = DictationBar(icon: icon)
+        bar = DictationBar()
         bar.onStart = { [weak self] in self?.toggle() }
         bar.onStop = { [weak self] in self?.stop() }
         bar.onCancel = { [weak self] in self?.cancel() }
@@ -71,10 +76,15 @@ final class DictationApp: NSObject, NSApplicationDelegate {
         bar.onCopy = { [weak self] in self?.copyLast() }
         bar.onCustomizeShortcuts = { [weak self] in self?.editShortcuts() }
         bar.onEnableKeyboard = { [weak self] in self?.enableKeyboard() }
+        bar.onVisibilityChange = { [weak self] visible in self?.barVisibilityItem.state = visible ? .on : .off }
+        barVisibilityItem.state = bar.showAtAllTimes ? .on : .off
         bar.show()
         installHotkeyHandler()
         installKeyboardTap()
         configureShortcuts()
+        keyboardObserver = NSWorkspace.shared.notificationCenter.addObserver(
+            forName: NSWorkspace.didActivateApplicationNotification, object: nil, queue: .main
+        ) { [weak self] _ in self?.reconnectKeyboard() }
         refresh()
     }
 
@@ -106,8 +116,9 @@ final class DictationApp: NSObject, NSApplicationDelegate {
         for hotkey in hotkeys { UnregisterEventHotKey(hotkey) }
         hotkeys.removeAll()
         var registrationFailed = false
+        tapShortcutsActive = keyboardReady
         // Carbon keeps existing users' shortcut available when keyboard permission is absent.
-        if eventTap == nil {
+        if !tapShortcutsActive {
             let bindings: [(UInt32, KeyBinding)] = [(1, .legacyHandsFree), (2, shortcuts.hold), (3, shortcuts.handsFree)]
             for (id, binding) in bindings {
                 if id == 3 && binding == .legacyHandsFree { continue }
@@ -133,8 +144,12 @@ final class DictationApp: NSObject, NSApplicationDelegate {
         shortcutEditor.show()
     }
 
+    /// Creates the keyboard listener, or re-enables one the system disabled.
     private func installKeyboardTap() {
-        guard eventTap == nil else { return }
+        if let eventTap = eventTap {
+            CGEvent.tapEnable(tap: eventTap, enable: true)
+            return
+        }
         let mask = (CGEventMask(1) << CGEventType.flagsChanged.rawValue) | (CGEventMask(1) << CGEventType.keyDown.rawValue) | (CGEventMask(1) << CGEventType.keyUp.rawValue)
         eventTap = CGEvent.tapCreate(tap: .cgSessionEventTap, place: .headInsertEventTap, options: .defaultTap,
             eventsOfInterest: mask, callback: { _, type, event, context in
@@ -146,6 +161,13 @@ final class DictationApp: NSObject, NSApplicationDelegate {
         eventSource = CFMachPortCreateRunLoopSource(kCFAllocatorDefault, eventTap, 0)
         if let eventSource = eventSource { CFRunLoopAddSource(CFRunLoopGetMain(), eventSource, .commonModes) }
         CGEvent.tapEnable(tap: eventTap, enable: true)
+    }
+
+    /// Follows Accessibility changes made while the app runs, without ending an active dictation.
+    private func reconnectKeyboard() {
+        guard session.canStart, !shortcutEditor.isVisible else { return }
+        if !keyboardReady, AXIsProcessTrusted() { installKeyboardTap() }
+        if keyboardReady != tapShortcutsActive { configureShortcuts() }
     }
 
     private func handleKeyboard(_ type: CGEventType, event: CGEvent) -> Unmanaged<CGEvent>? {
@@ -193,10 +215,6 @@ final class DictationApp: NSObject, NSApplicationDelegate {
             discardRecording()
             pasteWork?.cancel()
             pasteWork = nil
-            restoreWork?.cancel()
-            restoreWork = nil
-            clipboardLease?.restore()
-            clipboardLease = nil
             showMessage("Dictation cancelled")
         case .begin(let id):
             discardRecording()
@@ -232,6 +250,7 @@ final class DictationApp: NSObject, NSApplicationDelegate {
         case .failed: display = .failure(failureMessage); status = failureMessage
         }
         bar.render(display)
+        bar.surface.keyboardEnabled = keyboardReady
         bar.surface.canRetry = recordingURL != nil
         bar.surface.canCopy = !lastText.isEmpty
         item.button?.toolTip = "einsager: " + status
@@ -241,8 +260,8 @@ final class DictationApp: NSObject, NSApplicationDelegate {
         copyItem.isEnabled = !lastText.isEmpty
         shortcutsItem.isEnabled = session.canStart
         shortcutLabel.title = "einsager · hold " + shortcuts.hold.displayName + " / hands-free " + shortcuts.handsFree.displayName
-        keyboardItem.isEnabled = eventTap == nil
-        keyboardItem.title = eventTap == nil ? "Enable hold-to-talk…" : "Keyboard shortcuts enabled"
+        keyboardItem.isEnabled = !keyboardReady
+        keyboardItem.title = keyboardReady ? "Keyboard shortcuts enabled" : "Enable hold-to-talk…"
     }
 
     private func showMessage(_ text: String) {
@@ -264,13 +283,14 @@ final class DictationApp: NSObject, NSApplicationDelegate {
                 userInfo: [NSLocalizedDescriptionKey: "Microphone recording could not start."]) }
             recordingURL = url
             recorder = audio
-            bar.surface.waveform.levels = Array(repeating: 0, count: 9)
+            bar.surface.waveform.reset()
+            microphoneLevel = MicrophoneLevel()
             refresh()
             meterTimer = Timer.scheduledTimer(withTimeInterval: 1.0 / 15, repeats: true) { [weak self] _ in
                 guard let self = self, let recorder = self.recorder else { return }
                 recorder.updateMeters()
                 if recorder.peakPower(forChannel: 0) > -65 { self.heardAudio = true }
-                let level = CGFloat(pow(10, Double(recorder.averagePower(forChannel: 0)) / 30))
+                let level = self.microphoneLevel.level(for: recorder.averagePower(forChannel: 0))
                 self.bar.updateLevel(level, elapsed: recorder.currentTime, limit: self.recordingLimit)
             }
             stopTimer = Timer.scheduledTimer(withTimeInterval: recordingLimit, repeats: false) { [weak self] _ in self?.stop() }
@@ -312,13 +332,12 @@ final class DictationApp: NSObject, NSApplicationDelegate {
         refresh()
         let task = Process()
         let output = Pipe()
-        guard let script = Bundle.main.url(forResource: "transcribe", withExtension: "py"),
-              let python = Bundle.main.object(forInfoDictionaryKey: "DictationPython") as? String else {
+        guard let helper = Bundle.main.url(forAuxiliaryExecutable: "einsager-transcribe") else {
             fail(id, "The transcription helper is missing. Rebuild einsager.")
             return
         }
-        task.executableURL = URL(fileURLWithPath: python)
-        task.arguments = [script.path, url.path]
+        task.executableURL = helper
+        task.arguments = [url.path]
         task.standardOutput = output
         task.standardError = FileHandle.nullDevice
         process = task
@@ -367,26 +386,26 @@ final class DictationApp: NSObject, NSApplicationDelegate {
         }
         lastText = text
         copyItem.isEnabled = true
+        let clipboard = TranscriptClipboard()
+        guard clipboard.write(text) else {
+            _ = session.deliveryFinished(for: id)
+            showMessage("Clipboard unavailable. Use Copy last to retry.")
+            return
+        }
         guard let target = target, target.isStillFocused else {
-            copyLast()
             _ = session.deliveryFinished(for: id)
             showMessage("Copied. Press ⌘V in your text field.")
             return
         }
-        let lease = ClipboardLease()
-        lease.write(text)
-        clipboardLease = lease
         let work = DispatchWorkItem { [weak self] in
             guard let self = self, self.session.state == .delivering(id) else { return }
-            guard target.isStillFocused, lease.stillOwnsClipboard else {
-                self.clipboardLease = nil
+            guard target.isStillFocused, clipboard.stillOwnsClipboard else {
                 _ = self.session.deliveryFinished(for: id)
-                self.showMessage("Focus or clipboard changed. Use Copy last.")
+                self.showMessage(clipboard.stillOwnsClipboard ? "Copied. Press ⌘V in your text field." : "Clipboard changed. Use Copy last.")
                 return
             }
             guard let down = CGEvent(keyboardEventSource: nil, virtualKey: 9, keyDown: true),
                   let up = CGEvent(keyboardEventSource: nil, virtualKey: 9, keyDown: false) else {
-                self.clipboardLease = nil
                 _ = self.session.deliveryFinished(for: id)
                 self.showMessage("Copied. Press ⌘V to paste.")
                 return
@@ -396,13 +415,7 @@ final class DictationApp: NSObject, NSApplicationDelegate {
             down.post(tap: .cghidEventTap)
             up.post(tap: .cghidEventTap)
             _ = self.session.deliveryFinished(for: id)
-            self.showMessage("Paste sent. Copy last is available.")
-            let restore = DispatchWorkItem { [weak self] in
-                lease.restore()
-                if self?.clipboardLease === lease { self?.clipboardLease = nil }
-            }
-            self.restoreWork = restore
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.8, execute: restore)
+            self.showMessage("Paste sent. Text is also on the clipboard.")
         }
         pasteWork = work
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.15, execute: work)
@@ -410,12 +423,10 @@ final class DictationApp: NSObject, NSApplicationDelegate {
 
     @objc private func copyLast() {
         guard !lastText.isEmpty else { return }
-        restoreWork?.cancel()
-        restoreWork = nil
-        clipboardLease = nil
-        NSPasteboard.general.clearContents()
-        NSPasteboard.general.setString(lastText, forType: .string)
+        if !TranscriptClipboard().write(lastText) { showMessage("Clipboard unavailable. Try Copy last again.") }
     }
+
+    @objc private func toggleBarVisibility() { bar.showAtAllTimes.toggle() }
 
     @objc private func requestAccessibility() {
         let options = [kAXTrustedCheckOptionPrompt.takeUnretainedValue() as String: true] as CFDictionary
@@ -426,7 +437,7 @@ final class DictationApp: NSObject, NSApplicationDelegate {
 
     @objc private func enableKeyboard() {
         requestAccessibility()
-        if eventTap == nil { showMessage("Allow Accessibility, then select Enable hold-to-talk again.") }
+        if !keyboardReady { showMessage("Allow Accessibility, then select Enable hold-to-talk again.") }
     }
 
     @objc private func quit() { NSApplication.shared.terminate(nil) }
@@ -437,13 +448,14 @@ final class DictationApp: NSObject, NSApplicationDelegate {
         discardRecording()
         messageTimer?.invalidate()
         pasteWork?.cancel()
-        restoreWork?.cancel()
-        clipboardLease?.restore()
         bar.close()
         for hotkey in hotkeys { UnregisterEventHotKey(hotkey) }
         if let hotkeyHandler = hotkeyHandler { RemoveEventHandler(hotkeyHandler) }
         if let eventSource = eventSource { CFRunLoopRemoveSource(CFRunLoopGetMain(), eventSource, .commonModes) }
         if let eventTap = eventTap { CFMachPortInvalidate(eventTap) }
+        if let keyboardObserver = keyboardObserver {
+            NSWorkspace.shared.notificationCenter.removeObserver(keyboardObserver)
+        }
     }
 }
 

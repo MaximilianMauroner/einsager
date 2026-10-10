@@ -27,43 +27,24 @@ struct PasteTarget {
     }
 }
 
-/// Restores supported clipboard data only while this paste still owns the clipboard.
-final class ClipboardLease {
+/// Keeps the transcript available for manual paste and detects later clipboard changes.
+final class TranscriptClipboard {
     private let pasteboard: NSPasteboard
-    private let original: [[NSPasteboard.PasteboardType: Data]]?
     private var ownedChangeCount: Int?
 
     init(pasteboard: NSPasteboard = .general) {
         self.pasteboard = pasteboard
-        let supported: Set<NSPasteboard.PasteboardType> = [.string, .html, .rtf]
-        let items = pasteboard.pasteboardItems ?? []
-        if items.allSatisfy({ Set($0.types).isSubset(of: supported) }) {
-            original = items.map { item in
-                Dictionary(uniqueKeysWithValues: item.types.compactMap { type in
-                    item.data(forType: type).map { (type, $0) }
-                })
-            }
-        } else { original = nil }
     }
 
-    func write(_ text: String) {
+    @discardableResult func write(_ text: String) -> Bool {
         pasteboard.clearContents()
-        pasteboard.setString(text, forType: .string)
+        guard pasteboard.setString(text, forType: .string) else {
+            ownedChangeCount = nil
+            return false
+        }
         ownedChangeCount = pasteboard.changeCount
+        return true
     }
 
     var stillOwnsClipboard: Bool { ownedChangeCount == pasteboard.changeCount }
-
-    @discardableResult func restore() -> Bool {
-        guard stillOwnsClipboard, let original = original else { return false }
-        pasteboard.clearContents()
-        let items = original.map { data in
-            let item = NSPasteboardItem()
-            for (type, value) in data { item.setData(value, forType: type) }
-            return item
-        }
-        if !items.isEmpty { pasteboard.writeObjects(items) }
-        ownedChangeCount = nil
-        return true
-    }
 }

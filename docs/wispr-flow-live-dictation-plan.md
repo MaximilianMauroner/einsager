@@ -2,6 +2,13 @@
 
 Blast radius: Einsager’s macOS menu-bar icon, global dictation controls, floating status panel, and insertion feedback. Research checked on 9 October 2026. This records the original plan and icon exploration. Implementation status is recorded below.
 
+Current handoff: the Rust helper replaced Python. Max selected the classic Wispr
+pill and authorized implementation. Top docking and microphone level scaling
+are implemented. The six unused icon alternatives were removed; the shipped PDF
+remains. Earlier capture, icon-choice, and Python instructions below are history.
+See [current usage and verification](proof-of-concept.md) for implementation
+evidence. Live acceptance of the new Mac bundle and menu-highlight lag remain open.
+
 **Recommendation:** Keep the native Swift app and reuse its recorder, Python transcription helper, and paste path. Add the Flow-style interface and interaction in working layers. Investigate Wispr’s API separately only if matching its transcription behavior becomes necessary.
 
 Max confirmed that the scope is the live dictation experience only. Keep the existing menu and permission commands. There is currently no main app window or settings screen in this repository. Do not build Wispr’s hub, settings, billing, meeting recorder, or account system.
@@ -78,15 +85,15 @@ Proof: microphone choice changes the captured source; a language choice changes 
 
 ## Menu-bar icon options
 
-Three original generated PNG concepts are saved under `assets/icons/concepts/`. They have alpha transparency but have texture and generous canvas margins. They are visual concepts, not the shipped small-size template files.
+Three generated PNG concepts and three drawn SVG masters were compared:
 
-Three separately drawn SVG masters are saved beside them:
+- **A, Breath e.** Recommended and later selected. Connects to Einsager’s name, with a quiet wave ending.
+- **B, Songbird.** More character and a solid silhouette. Less direct as a dictation symbol.
+- **C, Voice.** Most explicit about audio, but has more detail at small sizes.
 
-- **A, Breath e:** `assets/icons/einsager-breath.svg`. Recommended. Connects to Einsager’s name, with a quiet wave ending. The continuous outline can need small-size optical adjustment.
-- **B, Songbird:** `assets/icons/einsager-songbird.svg`. More character and a solid silhouette. Less direct as a dictation symbol.
-- **C, Voice:** `assets/icons/einsager-voice.svg`. Most explicit about audio, but the speech outline and three bars have more detail at small sizes.
+The concept files were removed after A shipped as `assets/icons/einsager-breath.pdf`, which is now the only icon source. Git history keeps the earlier files.
 
-The SVGs are original vector alternatives, not image edits or copied Wispr assets. At integration, export the selected master to a template PDF or 18/36-pixel PNGs supported by AppKit, set `NSImage.isTemplate`, and use an accessible name and tooltip. Keep an icon-sized status change; do not replace it with REC or the full word. Wispr’s layout remains the live-interface reference regardless of which brand icon is chosen.
+The alternatives were original vector drawings, not image edits or copied Wispr assets. At integration, export the selected master to a template PDF or 18/36-pixel PNGs supported by AppKit, set `NSImage.isTemplate`, and use an accessible name and tooltip. Keep an icon-sized status change; do not replace it with REC or the full word. Wispr’s layout remains the live-interface reference regardless of which brand icon is chosen.
 
 ## Needs Max
 

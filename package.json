@@ -1,0 +1,36 @@
+{
+  "name": "einsager",
+  "version": "0.3.0",
+  "private": true,
+  "packageManager": "pnpm@11.28.2",
+  "type": "module",
+  "engines": { "node": ">=22.18.0" },
+  "description": "Desktop dictation using your local Codex login",
+  "license": "MIT",
+  "main": "desktop/dist/main.cjs",
+  "scripts": {
+    "postinstall": "install-electron",
+    "build": "cargo build --locked --release -j 1 && node scripts/build-desktop.mjs",
+    "build:ui": "node scripts/build-desktop.mjs",
+    "start": "electron .",
+    "check": "tsc --noEmit && node --test desktop/tests/*.test.ts",
+    "package": "node scripts/package-desktop.mjs",
+    "preview": "vite --host 0.0.0.0 --config desktop/vite.config.ts",
+    "test:desktop": "node desktop/tests/smoke.mjs"
+  },
+  "dependencies": {
+    "react": "19.3.0",
+    "react-dom": "19.3.0"
+  },
+  "devDependencies": {
+    "@electron/packager": "20.3.0",
+    "@playwright/test": "1.64.0",
+    "@types/node": "24.10.1",
+    "@types/react": "19.2.7",
+    "@types/react-dom": "19.2.3",
+    "electron": "44.7.0",
+    "esbuild": "0.28.2",
+    "typescript": "5.9.3",
+    "vite": "8.3.4"
+  }
+}

@@ -136,10 +136,37 @@ struct DictationSession {
     }
 }
 
-enum DockEdge: String { case bottom, left, right }
+/// Scales microphone power to the recent range of one recording, so quiet speech still moves the waveform.
+struct MicrophoneLevel {
+    /// Changes smaller than this span read as room noise, not speech.
+    private static let minimumRange: Float = 18
+    private var floor: Float?
+    private var peak: Float = 0
+
+    /// Converts an `averagePower` reading in decibels to a bar height from 0 to 1.
+    mutating func level(for decibels: Float) -> CGFloat {
+        let power = max(decibels, -80)
+        guard let previous = floor else {
+            floor = power
+            peak = power + Self.minimumRange
+            return 0
+        }
+        // The floor drops at once and rises slowly, so continuous speech does not become the new silence.
+        let floor = power < previous ? power : previous + (power - previous) * 0.01
+        // The peak rises at once and decays over a few seconds, so the scale follows the speaker's volume.
+        peak = power > peak ? power : peak + (power - peak) * 0.03
+        self.floor = floor
+        let range = max(peak - floor, Self.minimumRange)
+        return CGFloat(min(max((power - floor) / range, 0), 1))
+    }
+}
+
+enum DockEdge: String { case bottom, top, left, right }
 
 enum BarPlacement {
-    static func frame(size: CGSize, visible: CGRect, edge: DockEdge) -> CGRect {
+    /// Places the panel against `edge`. On the left and right, the pill (the panel's bottom `pillHeight`)
+    /// stays centered so a label appearing above it does not move it.
+    static func frame(size: CGSize, visible: CGRect, edge: DockEdge, pillHeight: CGFloat? = nil) -> CGRect {
         let width = min(size.width, visible.width)
         let height = min(size.height, visible.height)
         let gap: CGFloat = 12
@@ -147,8 +174,9 @@ enum BarPlacement {
         let y: CGFloat
         switch edge {
         case .bottom: x = visible.midX - width / 2; y = visible.minY + gap
-        case .left: x = visible.minX + gap; y = visible.midY - height / 2
-        case .right: x = visible.maxX - width - gap; y = visible.midY - height / 2
+        case .top: x = visible.midX - width / 2; y = visible.maxY - height - gap
+        case .left: x = visible.minX + gap; y = visible.midY - (pillHeight ?? height) / 2
+        case .right: x = visible.maxX - width - gap; y = visible.midY - (pillHeight ?? height) / 2
         }
         return clamp(CGRect(x: x, y: y, width: width, height: height), to: visible)
     }
@@ -162,6 +190,7 @@ enum BarPlacement {
 
     static func nearestEdge(to point: CGPoint, visible: CGRect) -> DockEdge {
         let distances: [(DockEdge, CGFloat)] = [(.bottom, abs(point.y - visible.minY)),
+                                               (.top, abs(point.y - visible.maxY)),
                                                (.left, abs(point.x - visible.minX)),
                                                (.right, abs(point.x - visible.maxX))]
         return distances.min { $0.1 < $1.1 }?.0 ?? .bottom
