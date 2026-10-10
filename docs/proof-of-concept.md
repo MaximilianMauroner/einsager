@@ -5,6 +5,21 @@ existing local Codex login. Version 0.2.0 adds the approved Breath e icon,
 a small floating dictation bar, hold-to-talk, hands-free, and custom shortcuts.
 The bundle identifier remains `local.max.codexdictation.poc` to keep its identity.
 
+## Native docking repair, 10 October 2026
+
+The surface now receives the selected dock edge. Left and right placement align
+the pill and label to that edge; top and bottom retain their centered layout.
+This keeps the original handle point inside the expanded pill during hover.
+The native probe checks a release at that screen point on all four docks and
+saves their hover renders.
+
+Source/caller review and whitespace checks passed. Compilation, native probe,
+and renders of this repair remain pending: this VM is Linux, and GitHub Actions
+cannot start because of account billing or spending-limit settings. Max must
+resolve that block before the implementing agent can verify and merge PR #3.
+Earlier native results below cover the code before this repair. Live acceptance
+and menu-highlight lag remain unresolved. No compatibility code was added.
+
 ## Wispr bar update, 10 October 2026
 
 The bar now uses the classic Wispr pill: a 40×8 pt idle handle, a dotted hover

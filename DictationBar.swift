@@ -175,7 +175,7 @@ final class DictationBar: NSObject {
         panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .stationary]
         panel.contentView = surface
         panel.title = "einsager dictation"
-        surface.labelBelow = edge == .top
+        surface.edge = edge
         surface.onStart = { [weak self] in self?.onStart?() }
         surface.onStop = { [weak self] in self?.onStop?() }
         surface.onCancel = { [weak self] in self?.onCancel?() }
@@ -254,7 +254,7 @@ final class DictationBar: NSObject {
     private func setEdge(_ edge: DockEdge) {
         self.edge = edge
         defaults.set(edge.rawValue, forKey: "dictationBarEdge")
-        surface.labelBelow = edge == .top
+        surface.edge = edge
         resize()
     }
 
@@ -307,8 +307,8 @@ final class BarSurface: NSView {
     private enum Pill { case handle, dots, waveform, handsFree, processing, cancellable }
 
     var display: DictationBar.Display = .idle { didSet { configure() } }
-    /// True when docked at the top edge, so the label sits below the pill.
-    var labelBelow = false { didSet { needsLayout = true; needsDisplay = true } }
+    var edge: DockEdge = .bottom { didSet { needsLayout = true; needsDisplay = true } }
+    private var labelBelow: Bool { edge == .top }
     /// Seconds before the recording limit, shown in the last minute only.
     var secondsLeft: Int? { didSet { if oldValue != secondsLeft { configure(); onResize?() } } }
     private(set) var hovered = false
@@ -377,13 +377,21 @@ final class BarSurface: NSView {
     private var pillRect: NSRect {
         let size = pillSize
         let y = labelBelow ? bounds.maxY - size.height : 0
-        return NSRect(x: (bounds.width - size.width) / 2, y: y, width: size.width, height: size.height)
+        return NSRect(x: horizontalOrigin(for: size.width), y: y, width: size.width, height: size.height)
     }
 
     private var labelRect: NSRect {
         let size = labelSize
         let y = labelBelow ? 0 : bounds.maxY - size.height
-        return NSRect(x: (bounds.width - size.width) / 2, y: y, width: size.width, height: size.height)
+        return NSRect(x: horizontalOrigin(for: size.width), y: y, width: size.width, height: size.height)
+    }
+
+    private func horizontalOrigin(for width: CGFloat) -> CGFloat {
+        switch edge {
+        case .left: return bounds.minX
+        case .right: return bounds.maxX - width
+        case .bottom, .top: return bounds.midX - width / 2
+        }
     }
 
     init() {

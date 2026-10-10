@@ -53,6 +53,30 @@ struct UIProbe {
         precondition(bar.surface.toolTip?.contains("Enable keyboard access") == true,
                      "Losing keyboard access must restore setup guidance")
         bar.surface.keyboardEnabled = true
+        for edge in [DockEdge.left, .right, .top, .bottom] {
+            defaults.set(edge.rawValue, forKey: "dictationBarEdge")
+            let docked = DictationBar(defaults: defaults)
+            docked.surface.keyboardEnabled = true
+            docked.show()
+            let restingFrame = docked.panel.frame
+            let restingPoint = CGPoint(x: restingFrame.midX, y: restingFrame.midY)
+            let hover = NSEvent.enterExitEvent(with: .mouseEntered, location: .zero, modifierFlags: [], timestamp: 0,
+                                               windowNumber: docked.panel.windowNumber, context: nil, eventNumber: 0,
+                                               trackingNumber: 0, userData: nil)!
+            docked.surface.mouseEntered(with: hover)
+            precondition(docked.panel.frame.width > restingFrame.width, "Hover must expand the docked surface")
+            var starts = 0
+            docked.onStart = { starts += 1 }
+            let release = NSEvent.mouseEvent(with: .leftMouseUp, location: docked.panel.convertPoint(fromScreen: restingPoint),
+                                             modifierFlags: [], timestamp: 0, windowNumber: docked.panel.windowNumber,
+                                             context: nil, eventNumber: 0, clickCount: 1, pressure: 0)!
+            docked.surface.mouseUp(with: release)
+            precondition(starts == 1, "Hover at \(edge.rawValue) must keep the original handle point clickable")
+            try render(docked.surface, name: edge.rawValue + "-hover", output: output)
+            docked.surface.endHover()
+            precondition(docked.panel.frame == restingFrame, "Leaving hover must restore the docked handle")
+            docked.close()
+        }
         let states: [(String, DictationBar.Display)] = [
             ("idle", .idle), ("starting", .requesting("Allow microphone access…")), ("recording", .recording(handsFree: true)),
             ("processing", .processing), ("success", .message("Paste sent. Copy last is available.")),
@@ -62,18 +86,22 @@ struct UIProbe {
             bar.render(state)
             bar.surface.canRetry = true
             bar.updateLevel(0.7, elapsed: 42, limit: 1200)
-            bar.surface.layoutSubtreeIfNeeded()
-            guard let bitmap = bar.surface.bitmapImageRepForCachingDisplay(in: bar.surface.bounds) else {
-                fatalError("Cannot render native surface")
-            }
-            bar.surface.cacheDisplay(in: bar.surface.bounds, to: bitmap)
-            guard let data = bitmap.representation(using: .png, properties: [:]) else { fatalError("Cannot encode native screenshot") }
-            try data.write(to: output.appendingPathComponent(name + ".png"))
-            print("Rendered \(name): \(Int(bar.surface.bounds.width)) × \(Int(bar.surface.bounds.height))")
+            try render(bar.surface, name: name, output: output)
         }
         bar.close()
         bar.render(.recording(handsFree: true))
         precondition(!bar.panel.isVisible, "A late render must not reopen the bar after quit")
-        print("Native panel focus and template PDF checks passed")
+        print("Native panel focus, docked hover click, and template PDF checks passed")
+    }
+
+    static func render(_ surface: BarSurface, name: String, output: URL) throws {
+        surface.layoutSubtreeIfNeeded()
+        guard let bitmap = surface.bitmapImageRepForCachingDisplay(in: surface.bounds) else {
+            fatalError("Cannot render native surface")
+        }
+        surface.cacheDisplay(in: surface.bounds, to: bitmap)
+        guard let data = bitmap.representation(using: .png, properties: [:]) else { fatalError("Cannot encode native screenshot") }
+        try data.write(to: output.appendingPathComponent(name + ".png"))
+        print("Rendered \(name): \(Int(surface.bounds.width)) × \(Int(surface.bounds.height))")
     }
 }
