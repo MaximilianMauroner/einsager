@@ -15,7 +15,8 @@ const execute = promisify(execFile);
 const directory = await mkdtemp(join(tmpdir(), 'einsager-x11-test-'));
 let editor;
 try {
-  await execute(electronExecutable, [resolve('apps/desktop/tests/fixtures/quit-before-start.cjs'), `--user-data-dir=${join(directory, 'early-quit')}`], { timeout: 10_000 });
+  // Match Playwright's Electron test launches on hosts without a SUID sandbox helper.
+  await execute(electronExecutable, ['--no-sandbox', resolve('apps/desktop/tests/fixtures/quit-before-start.cjs'), `--user-data-dir=${join(directory, 'early-quit')}`], { timeout: 10_000 });
   console.log('Desktop startup: quitting before readiness terminates the production app.');
   editor = await electron.launch({ args: [resolve('apps/desktop/tests/fixtures/linux-editor.cjs'), `--user-data-dir=${directory}`] });
   const page = await editor.firstWindow();

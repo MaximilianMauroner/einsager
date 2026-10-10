@@ -204,7 +204,7 @@ else {
     event.preventDefault();
     quitting = true;
     delivery.cancel();
-    globalShortcut.unregisterAll();
+    if (app.isReady()) globalShortcut.unregisterAll();
     if (!transcription) { app.quit(); return; }
     void transcription.cancel().finally(() => app.quit());
   });
