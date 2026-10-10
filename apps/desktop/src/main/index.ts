@@ -125,7 +125,7 @@ function setEdge(edge: Settings['edge']) {
 async function deliver(result: TranscriptResult, revision: number) {
   const delivered = await delivery.deliver(result, revision, settings.clipboard);
   if ('text' in delivered && delivered.text.trim() && settings.keepHistory) {
-    await history.add(delivered.text, recording).catch(error => console.error('Could not save history', error));
+    await history.add(delivered.text, recording);
   }
   publish();
   return delivered;
@@ -322,9 +322,10 @@ else {
     quitting = true;
     delivery.cancel();
     if (app.isReady()) globalShortcut.unregisterAll();
-    // A paste's pending restore runs now, so quitting gives the earlier clipboard back.
-    // Quitting before startup completes has no transcription session to cancel.
-    void Promise.all([delivery.restoreNow(), transcription?.cancel()]).finally(() => app.quit());
+    // A paste's pending restore runs now, so quitting gives the earlier clipboard back, and queued
+    // settings and history writes finish. Quitting before startup completes has no session or files yet.
+    void Promise.all([delivery.restoreNow(), transcription?.cancel(), settingsFile?.settled(), history?.settled()])
+      .finally(() => app.quit());
   });
   void app.whenReady().then(start).catch(error => { console.error(error); app.exit(1); });
 }

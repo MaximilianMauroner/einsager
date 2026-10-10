@@ -1,8 +1,8 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtemp, rm, stat, writeFile } from 'node:fs/promises';
+import { chmod, mkdtemp, rm, stat, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import { describeRecording, HISTORY_LIMIT, TranscriptHistory } from '../src/main/history.ts';
 import { defaultSettings, mergeSettings, parseStoredSettings } from '../src/main/settings.ts';
 import { encodeWav } from '../src/renderer/audio.ts';
@@ -39,6 +39,32 @@ test('delete and clear also survive a restart', () => withFile(async file => {
   const cleared = new TranscriptHistory(file);
   await cleared.load();
   assert.equal(cleared.entries.length, 0);
+}));
+
+test('a failed write keeps delete and clear in memory', { skip: process.platform === 'win32' }, t => withFile(async file => {
+  t.mock.method(console, 'error', () => {});
+  const history = new TranscriptHistory(file);
+  const first = await history.add('first', { seconds: 1, voiceprint: [] });
+  await history.add('second', { seconds: 1, voiceprint: [] });
+  // A read-only folder rejects the temporary file, as a full or read-only volume would.
+  await chmod(dirname(file), 0o500);
+  try {
+    await history.remove(first.id);
+    assert.deepEqual(history.entries.map(entry => entry.text), ['second']);
+    await history.clear();
+    assert.equal(history.entries.length, 0);
+    await history.settled();
+  } finally { await chmod(dirname(file), 0o700); }
+}));
+
+test('settled waits until queued writes are on disk', () => withFile(async file => {
+  const history = new TranscriptHistory(file);
+  void history.add('first', { seconds: 1, voiceprint: [] });
+  void history.add('second', { seconds: 1, voiceprint: [] });
+  await history.settled();
+  const reloaded = new TranscriptHistory(file);
+  await reloaded.load();
+  assert.deepEqual(reloaded.entries.map(entry => entry.text), ['first', 'second']);
 }));
 
 test('history keeps the newest entries and skips damaged ones', () => withFile(async file => {

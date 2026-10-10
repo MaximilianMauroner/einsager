@@ -19,4 +19,7 @@ export class PrivateFile {
     this.writing = next;
     return next;
   }
+
+  /** Resolves once every write queued so far has finished or failed, for example before quit. Never rejects. */
+  settled() { return this.writing.catch(() => undefined); }
 }

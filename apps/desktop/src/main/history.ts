@@ -41,7 +41,14 @@ export class TranscriptHistory {
     await this.save();
   }
 
-  private save() { return this.file.write(JSON.stringify(this.items)); }
+  /** Resolves once every queued write has finished or failed. Never rejects. */
+  settled() { return this.file.settled(); }
+
+  /** Memory stays authoritative when a write fails, for example on a full disk. The next successful save stores it all. */
+  private async save() {
+    try { await this.file.write(JSON.stringify(this.items)); }
+    catch (error) { console.error('Could not save history:', error); }
+  }
 }
 
 function isEntry(value: unknown): value is HistoryEntry {
