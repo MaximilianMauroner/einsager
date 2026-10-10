@@ -57,7 +57,8 @@ export class LinuxDesktop {
         const owner = await this.command(['getwindowpid', target], signal);
         if (owner !== pid || !await ready() || signal.aborted) return false;
         // Explicit targeting avoids sending Ctrl+V to a new window during a focus race.
-        // Some clients reject these XSendEvent keys; preserve the transcript for manual paste.
+        // Some clients reject these XSendEvent keys. In the default clipboard mode, a sent paste
+        // still gives the earlier clipboard back after the restore delay; Copy last recovers the text.
         await this.command(['key', '--window', target, '--delay', '0', 'ctrl+v'], signal);
         return true;
       };

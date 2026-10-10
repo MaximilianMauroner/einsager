@@ -30,11 +30,13 @@ try {
   const delivery = new TranscriptDelivery({
     writeText: text => editor.evaluate(({ clipboard }, value) => clipboard.writeText(value), text),
     readText: () => editor.evaluate(({ clipboard }) => clipboard.readText()),
+    // 'always' keeps the transcript copied, so delivery never saves the earlier contents.
+    save: () => () => {},
   }, signal => desktop.captureTarget(signal));
 
   await delivery.begin();
   const text = 'Grüße from Linux\nSecond line';
-  assert.deepEqual(await delivery.deliver({ text }, delivery.revision), { text, pasteSent: true });
+  assert.deepEqual(await delivery.deliver({ text }, delivery.revision, 'always'), { text, delivery: 'pasted-and-copied' });
   await expect(field).toHaveValue(text);
   assert.equal(await page.evaluate(() => window.enterKeys), 0, 'Paste must never submit by sending Enter.');
 
@@ -46,8 +48,8 @@ try {
     return window.getNativeWindowHandle().readUInt32LE();
   });
   await execute('xdotool', ['windowfocus', '--sync', String(other)], { timeout: 1500 });
-  const shifted = await delivery.deliver({ text: 'manual recovery' }, delivery.revision);
-  assert.deepEqual(shifted, { text: 'manual recovery', pasteSent: false });
+  const shifted = await delivery.deliver({ text: 'manual recovery' }, delivery.revision, 'always');
+  assert.deepEqual(shifted, { text: 'manual recovery', delivery: 'copied' });
   assert.equal(await editor.evaluate(({ clipboard }) => clipboard.readText()), 'manual recovery');
   assert.equal(await editor.evaluate(({ BrowserWindow }, id) => BrowserWindow.getAllWindows()
     .find(window => window.getNativeWindowHandle().readUInt32LE() === id)
@@ -58,7 +60,7 @@ try {
   await delivery.begin();
   const cancelled = delivery.revision;
   delivery.cancel();
-  assert.deepEqual(await delivery.deliver({ text: 'stale transcript' }, cancelled), { cancelled: true });
+  assert.deepEqual(await delivery.deliver({ text: 'stale transcript' }, cancelled, 'always'), { cancelled: true });
   await expect(field).toHaveValue(text);
   console.log('Linux X11: real window-targeted paste, Unicode, no Enter, focus-change recovery, and cancelled delivery passed. No microphone, login, or network request used.');
 } finally {

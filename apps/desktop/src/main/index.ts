@@ -7,7 +7,8 @@ import type { DesktopAction, PanelState, SessionStatus, Settings, TranscriptResu
 import { clampFrame, dockFrame, nearestEdge } from './placement';
 import { TranscriptionSession } from './transcription';
 import { platformFor } from './platform';
-import { TranscriptDelivery, type Clipboard } from './delivery';
+import { TranscriptDelivery } from './delivery';
+import { systemClipboard } from './system-clipboard';
 import { LinuxDesktop } from './linux/desktop';
 import { describeRecording, TranscriptHistory, type Recording } from './history';
 import { defaultSettings, mergeSettings, parseStoredSettings } from './settings';
@@ -16,20 +17,7 @@ import { PrivateFile } from './private-file';
 
 const platform = platformFor(process.platform);
 const linux = process.platform === 'linux' ? new LinuxDesktop() : undefined;
-/** Electron's clipboard. Saving reads every type now, before the transcript replaces the contents. */
-const systemClipboard: Clipboard = {
-  writeText: text => clipboard.writeText(text),
-  readText: () => clipboard.readText(),
-  async save() {
-    const items = await Promise.all((await clipboard.read()).map(async item =>
-      Object.fromEntries(await Promise.all(item.types.map(async type => [type, await item.getType(type)] as const)))));
-    return async () => {
-      if (items.length) await clipboard.write(items.map(item => new ClipboardItem(item)));
-      else clipboard.clear();
-    };
-  },
-};
-const delivery = new TranscriptDelivery(systemClipboard, linux ? signal => linux.captureTarget(signal) : undefined);
+const delivery = new TranscriptDelivery(systemClipboard(clipboard, ClipboardItem), linux ? signal => linux.captureTarget(signal) : undefined);
 app.commandLine.appendSwitch('enable-features', 'GlobalShortcutsPortal');
 const shortcut = 'Control+Alt+Space';
 /** Lets focus return to the editor before the pill captures or checks the paste target. */

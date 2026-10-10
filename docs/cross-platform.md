@@ -88,7 +88,8 @@ work in every mode.
 
 Transcript history keeps the text, time, length, and a coarse loudness shape of
 the newest 500 transcripts. It never keeps audio. Turn it off or clear it in
-Settings. Clearing history, or deleting the newest entry, also clears Copy last.
+Settings. Clearing history also clears Copy last. Deleting any entry with the same
+text as the last transcript clears it too.
 
 Copy last can copy an earlier transcript while a failed recording stays available
 for Retry. A failure to create or write the temporary recording discards any

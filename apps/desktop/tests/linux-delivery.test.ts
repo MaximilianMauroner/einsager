@@ -248,13 +248,15 @@ test('restoring never overwrites something the user copied after the paste', asy
 
 test('without a paste target, if paste fails copies without reading the old clipboard', async () => {
   let text = 'previous clipboard';
+  let saves = 0;
   const delivery = new TranscriptDelivery({
     writeText(value) { text = value; }, readText() { return text; },
-    save() { throw new Error('Saving is wasted work when no paste can follow'); },
+    save() { saves++; return () => {}; },
   });
   await delivery.begin();
   assert.deepEqual(await delivery.deliver({ text: 'copied' }, delivery.revision, 'if-paste-fails'), { text: 'copied', delivery: 'copied' });
   assert.equal(text, 'copied');
+  assert.equal(saves, 0, 'Saving is wasted work when no paste can follow');
 });
 
 test('never: without a paste target the clipboard is untouched and the text stays recoverable', async () => {

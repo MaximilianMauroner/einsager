@@ -53,16 +53,19 @@ This version does not request RemoteDesktop control or use privileged input tool
 
 Electron's GlobalShortcutsPortal feature is enabled before startup. Ctrl+Alt+Space
 depends on the desktop's shortcut portal and permission. If the shortcut is
-unavailable, click the pill. The compositor owns window placement, so Dock menu
-items and drag requests are disabled. Recording controls and labels still resize
-the window. Always-on-top/fullscreen visibility depends on the compositor.
+unavailable, click the pill. The compositor owns window placement, so the
+**Dock the pill** setting and drag requests are disabled. Recording controls and
+labels still resize the window. Always-on-top/fullscreen visibility depends on
+the compositor.
 
 ## Tray and microphone
 
 Tray visibility depends on the desktop shell. Some GNOME setups need an
 AppIndicator extension. The pill's right-click menu has the same controls,
-including Quit and Select Codex folder, so recording does not require a visible
-tray icon. No desktop-shell extension is installed by the app.
+including Quit and **History and settings…**, so recording does not require a
+visible tray icon. **History and settings…** opens the tray panel. Set docking
+and the Codex folder in its Settings. No desktop-shell extension is installed by
+the app.
 
 Select and enable the microphone in the system's sound settings. Chromium uses
 the available Linux audio stack; the app does not add a second recording backend.

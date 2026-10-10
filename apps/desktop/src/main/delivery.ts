@@ -10,7 +10,7 @@ export interface Clipboard {
 }
 
 /** Target apps read the clipboard after they receive the paste keys, so restoring waits this long. */
-export const RESTORE_DELAY_MS = 1000;
+const RESTORE_DELAY_MS = 1000;
 
 /** Owns the recording's paste target, clipboard recovery, and stale-delivery guard. */
 export class TranscriptDelivery {

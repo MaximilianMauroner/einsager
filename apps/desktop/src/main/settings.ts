@@ -1,7 +1,7 @@
 import type { ClipboardMode, DockEdge, Settings } from '../shared/contract.ts';
 
-export const edges: readonly DockEdge[] = ['bottom', 'top', 'left', 'right'];
-export const clipboardModes: readonly ClipboardMode[] = ['always', 'if-paste-fails', 'never'];
+const edges: readonly DockEdge[] = ['bottom', 'top', 'left', 'right'];
+const clipboardModes: readonly ClipboardMode[] = ['always', 'if-paste-fails', 'never'];
 export const defaultSettings: Settings = { edge: 'bottom', clipboard: 'if-paste-fails', keepHistory: true };
 
 const isEdge = (value: unknown): value is DockEdge => edges.some(edge => edge === value);
