@@ -104,6 +104,7 @@ test('stored settings keep valid fields; the panel cannot change the Codex folde
   assert.deepEqual(parseStoredSettings({ edge: 'middle', clipboard: 'sometimes', keepHistory: 'yes' }), defaultSettings);
   assert.deepEqual(parseStoredSettings(null), defaultSettings);
   const current = { ...defaultSettings, codexHome: '/mine' };
-  assert.deepEqual(mergeSettings(current, { clipboard: 'never', keepHistory: false, codexHome: '/elsewhere' }),
-    { ...current, clipboard: 'never', keepHistory: false });
+  assert.deepEqual(mergeSettings(current, { clipboard: 'never', keepHistory: false, showPill: false, codexHome: '/elsewhere' }),
+    { ...current, clipboard: 'never', keepHistory: false, showPill: false });
+  assert.equal(parseStoredSettings({ edge: 'top' }).showPill, true, 'Earlier settings files keep the pill visible');
 });

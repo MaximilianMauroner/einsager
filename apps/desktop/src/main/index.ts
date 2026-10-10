@@ -3,7 +3,7 @@ import { readFile } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { join, resolve, sep } from 'node:path';
 import { pathToFileURL } from 'node:url';
-import type { DesktopAction, PanelState, SessionStatus, Settings, TranscriptResult } from '../shared/contract';
+import type { DesktopAction, DesktopInfo, KeyboardState, PanelState, SessionStatus, Settings, TranscriptResult } from '../shared/contract';
 import { clampFrame, dockFrame, nearestEdge } from './placement';
 import { TranscriptionSession } from './transcription';
 import { platformFor } from './platform';
@@ -14,6 +14,7 @@ import { describeRecording, TranscriptHistory, type Recording } from './history'
 import { defaultSettings, mergeSettings, parseStoredSettings } from './settings';
 import { TrayPanel } from './panel';
 import { PrivateFile } from './private-file';
+import { MacKeyboard } from './keyboard';
 
 const platform = platformFor(process.platform);
 const linux = process.platform === 'linux' ? new LinuxDesktop() : undefined;
@@ -31,6 +32,10 @@ let history: TranscriptHistory;
 let settingsFile: PrivateFile;
 let recording: Recording = { seconds: 0, voiceprint: [] };
 let shortcutAvailable = false;
+let keyboard: MacKeyboard | undefined;
+let keyboardState: KeyboardState | undefined;
+/** The pill has a session or result to show, so it appears even when hidden while idle. */
+let pillNeeded = false;
 let transcription: TranscriptionSession;
 let dragOrigin: Electron.Rectangle | undefined;
 let pillHeight = 8;
@@ -67,11 +72,33 @@ async function chooseCodexHome() {
   publish();
 }
 
+const helperFile = (name: string) => app.isPackaged ? join(process.resourcesPath, name) : resolve('target/release', name);
+
 function createTranscription() {
-  const name = platform.helperExecutable;
-  const file = app.isPackaged ? join(process.resourcesPath, name) : resolve('target/release', name);
   // Keep credentials inside the helper. The renderer never reads the login or receives tokens.
-  transcription = new TranscriptionSession({ file }, { ...process.env, ...(settings.codexHome ? { CODEX_HOME: settings.codexHome } : {}) });
+  transcription = new TranscriptionSession({ file: helperFile(platform.helperExecutable) },
+    { ...process.env, ...(settings.codexHome ? { CODEX_HOME: settings.codexHome } : {}) });
+}
+
+/** The macOS helper handles Fn and custom shortcuts once trusted; until then Electron's shortcut is the fallback. */
+function applyShortcuts() {
+  globalShortcut.unregister(shortcut);
+  shortcutAvailable = keyboardState?.trusted === true || globalShortcut.register(shortcut, () => send('toggle'));
+  pushInfo();
+  publish();
+}
+
+function info(): DesktopInfo {
+  const native = keyboardState?.trusted ? keyboardState : undefined;
+  return { edge: settings.edge, shortcut: native?.handsFree ?? 'Ctrl+Alt+Space', holdKey: native?.hold, shortcutAvailable,
+    pasteKey: platform.pasteKey, canPositionWindow: linux?.canPositionWindow !== false, desktopNotice: linux?.notice };
+}
+
+function pushInfo() { window.webContents.send('info', info()); }
+
+function updatePill() {
+  if (settings.showPill || pillNeeded) { if (!window.isVisible()) window.showInactive(); }
+  else window.hide();
 }
 
 function codexFolder() {
@@ -85,7 +112,7 @@ function panelState(): PanelState {
   return {
     status, history: [...history.entries], settings: editable, codexFolder: codexFolder(),
     shortcut: 'Ctrl+Alt+Space', shortcutAvailable, canPaste: linux?.canPaste ?? false,
-    canPositionWindow: linux?.canPositionWindow !== false, desktopNotice: linux?.notice,
+    canPositionWindow: linux?.canPositionWindow !== false, desktopNotice: linux?.notice, keyboard: keyboardState,
   };
 }
 
@@ -119,7 +146,7 @@ function actionMenu() {
 function setEdge(edge: Settings['edge']) {
   settings = { ...settings, edge };
   reposition();
-  window.webContents.send('edge', edge);
+  pushInfo();
 }
 
 async function deliver(result: TranscriptResult, revision: number) {
@@ -149,10 +176,12 @@ function installIPC() {
   const fromPanel = (event: Electron.IpcMainEvent | Electron.IpcMainInvokeEvent) => {
     if (event.sender !== panel.window.webContents || event.senderFrame?.url !== panelURL) throw new Error('Unknown renderer');
   };
-  ipcMain.handle('info', event => {
+  ipcMain.handle('info', event => { trusted(event); return info(); });
+  ipcMain.on('visible', (event, value: unknown) => {
     trusted(event);
-    return { edge: settings.edge, shortcut: 'Ctrl+Alt+Space', shortcutAvailable, pasteKey: platform.pasteKey,
-      canPositionWindow: linux?.canPositionWindow !== false, desktopNotice: linux?.notice };
+    if (typeof value !== 'boolean') return;
+    pillNeeded = value;
+    updatePill();
   });
   ipcMain.handle('begin', async event => {
     trusted(event);
@@ -223,7 +252,7 @@ function installIPC() {
   ipcMain.handle('panel:state', event => { fromPanel(event); return panelState(); });
   ipcMain.on('panel:act', (event, action: unknown) => {
     fromPanel(event);
-    if (action !== 'toggle' && action !== 'cancel' && action !== 'retry') return;
+    if (action !== 'toggle' && action !== 'finish' && action !== 'cancel' && action !== 'retry') return;
     panel.hide();
     setTimeout(() => send(action), PANEL_FOCUS_RETURN_MS);
   });
@@ -252,8 +281,18 @@ function installIPC() {
     const edgeChanged = next.edge !== settings.edge;
     settings = next;
     if (edgeChanged) setEdge(next.edge);
+    updatePill();
     await saveSettings();
     publish();
+  });
+  ipcMain.on('panel:shortcut', (event, value: unknown) => {
+    fromPanel(event);
+    if (typeof value !== 'object' || value === null || !('command' in value)) return;
+    const { command } = value;
+    if (command === 'stopCapture' || command === 'reset' || command === 'prompt') keyboard?.send({ command });
+    if (command === 'capture' && 'target' in value && (value.target === 'hold' || value.target === 'handsFree')) {
+      keyboard?.send({ command, target: value.target });
+    }
   });
   ipcMain.handle('panel:codex', async event => { fromPanel(event); await chooseCodexHome(); });
   ipcMain.on('panel:resize', (event, height: unknown) => {
@@ -292,6 +331,8 @@ async function start() {
   panel = new TrayPanel(join(__dirname, 'panel-preload.cjs'), linux?.canPositionWindow !== false, () => quitting);
   panel.window.on('focus', updateEscape);
   panel.window.on('blur', updateEscape);
+  // A shortcut recording ends with the panel, so keys never stay captured.
+  panel.window.on('hide', () => { if (keyboardState?.capturing) keyboard?.send({ command: 'stopCapture' }); });
   // The 44 px asset is drawn for 2x screens. At 1x it would be twice the menu bar's height.
   const icon = nativeImage.createFromBuffer(await readFile(join(__dirname, 'tray.png')), { scaleFactor: 2 });
   icon.setTemplateImage(platform.templateTrayIcon);
@@ -303,11 +344,19 @@ async function start() {
     tray.on('click', () => panel.toggle(tray.getBounds()));
     tray.on('right-click', () => tray.popUpContextMenu(actionMenu()));
   }
-  shortcutAvailable = globalShortcut.register(shortcut, () => send('toggle'));
   installIPC();
+  applyShortcuts();
+  if (platform.keyboardHelper) {
+    const actions = { holdPressed: 'hold-pressed', holdReleased: 'hold-released', toggle: 'toggle', interrupted: 'hold-interrupted' } as const;
+    keyboard = new MacKeyboard(helperFile(platform.keyboardHelper), state => {
+      keyboardState = state;
+      applyShortcuts();
+    }, action => send(actions[action]));
+    keyboard.start();
+  }
   await window.loadFile(rendererFile('index.html'));
   reposition();
-  window.showInactive();
+  updatePill();
   await panel.window.loadFile(rendererFile('panel.html'));
   screen.on('display-removed', reposition);
   screen.on('display-metrics-changed', reposition);
@@ -315,13 +364,15 @@ async function start() {
 
 if (!app.requestSingleInstanceLock()) app.quit();
 else {
-  app.on('second-instance', () => window?.showInactive());
+  // Launching einsager again opens the panel once startup has made it; the pill keeps its idle setting.
+  app.on('second-instance', () => { if (tray) openPanel(); });
   app.on('before-quit', event => {
     if (quitting) return;
     event.preventDefault();
     quitting = true;
     delivery.cancel();
     if (app.isReady()) globalShortcut.unregisterAll();
+    keyboard?.stop();
     // A paste's pending restore runs now, so quitting gives the earlier clipboard back, and queued
     // settings and history writes finish. Quitting before startup completes has no session or files yet.
     void Promise.all([delivery.restoreNow(), transcription?.cancel(), settingsFile?.settled(), history?.settled()])

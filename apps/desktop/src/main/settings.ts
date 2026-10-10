@@ -2,7 +2,7 @@ import type { ClipboardMode, DockEdge, Settings } from '../shared/contract.ts';
 
 const edges: readonly DockEdge[] = ['bottom', 'top', 'left', 'right'];
 const clipboardModes: readonly ClipboardMode[] = ['always', 'if-paste-fails', 'never'];
-export const defaultSettings: Settings = { edge: 'bottom', clipboard: 'if-paste-fails', keepHistory: true };
+export const defaultSettings: Settings = { edge: 'bottom', clipboard: 'if-paste-fails', keepHistory: true, showPill: true };
 
 const isEdge = (value: unknown): value is DockEdge => edges.some(edge => edge === value);
 const isClipboardMode = (value: unknown): value is ClipboardMode => clipboardModes.some(mode => mode === value);
@@ -14,6 +14,7 @@ export function mergeSettings(current: Settings, value: unknown): Settings {
   if ('edge' in value && isEdge(value.edge)) next.edge = value.edge;
   if ('clipboard' in value && isClipboardMode(value.clipboard)) next.clipboard = value.clipboard;
   if ('keepHistory' in value && typeof value.keepHistory === 'boolean') next.keepHistory = value.keepHistory;
+  if ('showPill' in value && typeof value.showPill === 'boolean') next.showPill = value.showPill;
   return next;
 }
 

@@ -1,5 +1,5 @@
 import { contextBridge, ipcRenderer } from 'electron';
-import type { DesktopAction, DesktopBridge, DockEdge } from './shared/contract';
+import type { DesktopAction, DesktopBridge, DesktopInfo } from './shared/contract';
 
 const bridge: DesktopBridge = {
   info: () => ipcRenderer.invoke('info'),
@@ -12,15 +12,16 @@ const bridge: DesktopBridge = {
   drag: (dx, dy, finished) => ipcRenderer.send('drag', dx, dy, finished),
   menu: () => ipcRenderer.send('menu'),
   status: value => ipcRenderer.send('status', value),
+  visible: value => ipcRenderer.send('visible', value),
   onAction(callback) {
     const handler = (_event: Electron.IpcRendererEvent, action: DesktopAction) => callback(action);
     ipcRenderer.on('action', handler);
     return () => ipcRenderer.removeListener('action', handler);
   },
-  onEdge(callback) {
-    const handler = (_event: Electron.IpcRendererEvent, edge: DockEdge) => callback(edge);
-    ipcRenderer.on('edge', handler);
-    return () => ipcRenderer.removeListener('edge', handler);
+  onInfo(callback) {
+    const handler = (_event: Electron.IpcRendererEvent, info: DesktopInfo) => callback(info);
+    ipcRenderer.on('info', handler);
+    return () => ipcRenderer.removeListener('info', handler);
   },
 };
 contextBridge.exposeInMainWorld('einsager', bridge);

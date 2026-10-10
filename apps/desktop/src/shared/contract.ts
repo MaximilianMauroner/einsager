@@ -1,5 +1,5 @@
 export type DockEdge = 'bottom' | 'top' | 'left' | 'right';
-export type DesktopAction = 'toggle' | 'cancel' | 'retry' | 'copy';
+export type DesktopAction = 'toggle' | 'finish' | 'cancel' | 'retry' | 'copy' | 'hold-pressed' | 'hold-released' | 'hold-interrupted';
 /** When the transcript may stay on the clipboard. Paste always borrows it briefly. */
 export type ClipboardMode = 'always' | 'if-paste-fails' | 'never';
 export type Delivery = 'pasted' | 'pasted-and-copied' | 'copied' | 'not-copied' | 'clipboard-failed';
@@ -8,7 +8,10 @@ export type SessionStatus = { state: 'idle' | 'requesting' | 'recording' | 'proc
 
 export interface DesktopInfo {
   edge: DockEdge;
+  /** The hands-free shortcut. */
   shortcut: string;
+  /** The hold-to-talk key, when the macOS keyboard helper is active. */
+  holdKey?: string;
   shortcutAvailable: boolean;
   pasteKey: string;
   canPositionWindow: boolean;
@@ -26,8 +29,10 @@ export interface DesktopBridge {
   drag(dx: number, dy: number, finished: boolean): void;
   menu(): void;
   status(value: SessionStatus): void;
+  /** Tells the host whether the pill has something to show, so a hidden idle pill can appear. */
+  visible(value: boolean): void;
   onAction(callback: (action: DesktopAction) => void): () => void;
-  onEdge(callback: (edge: DockEdge) => void): () => void;
+  onInfo(callback: (info: DesktopInfo) => void): () => void;
 }
 
 export interface HistoryEntry {
@@ -44,11 +49,24 @@ export interface Settings {
   edge: DockEdge;
   clipboard: ClipboardMode;
   keepHistory: boolean;
+  /** Keeps the idle pill on screen. When false, it appears only for a session or a result. */
+  showPill: boolean;
   /** Custom Codex folder; the helper's default lookup applies when absent. */
   codexHome?: string;
 }
 
 export type PanelSettings = Omit<Settings, 'codexHome'>;
+
+/** The macOS keyboard helper's shortcuts, shown as key names such as "Fn" or "Fn+Space". */
+export interface KeyboardState {
+  /** Accessibility access lets the helper see Fn; without it, only the fallback shortcut works. */
+  trusted: boolean;
+  hold: string;
+  handsFree: string;
+  capturing: 'hold' | 'handsFree' | null;
+  error: string | null;
+}
+export type KeyboardCommand = { command: 'capture'; target: 'hold' | 'handsFree' } | { command: 'stopCapture' | 'reset' | 'prompt' };
 
 export interface PanelState {
   status: SessionStatus;
@@ -62,9 +80,11 @@ export interface PanelState {
   canPaste: boolean;
   canPositionWindow: boolean;
   desktopNotice?: string;
+  /** Present on macOS while the keyboard helper runs. */
+  keyboard?: KeyboardState;
 }
 
-export type PanelAction = 'toggle' | 'cancel' | 'retry';
+export type PanelAction = 'toggle' | 'finish' | 'cancel' | 'retry';
 
 export interface PanelBridge {
   state(): Promise<PanelState>;
@@ -77,6 +97,7 @@ export interface PanelBridge {
   clear(): Promise<void>;
   update(settings: Partial<PanelSettings>): Promise<void>;
   chooseCodexHome(): Promise<void>;
+  shortcut(command: KeyboardCommand): void;
   resize(height: number): void;
   hide(): void;
   quit(): void;

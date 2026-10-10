@@ -4,8 +4,9 @@ import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { platformFor } from '../src/main/platform.ts';
 
-const helper = resolve('target/release', platformFor(process.platform).helperExecutable);
-await access(helper);
+const platform = platformFor(process.platform);
+const helpers = [platform.helperExecutable, platform.keyboardHelper].filter(name => name !== undefined).map(name => resolve('target/release', name));
+await Promise.all(helpers.map(helper => access(helper)));
 const metadata = JSON.parse(await readFile('package.json', 'utf8'));
 const staging = await mkdtemp(join(tmpdir(), 'einsager-package-'));
 try {
@@ -18,7 +19,7 @@ try {
   console.log(await packager({
     dir: staging, name: 'einsager', out: resolve('release'), overwrite: true,
     platform: process.platform, arch: process.arch, electronVersion: metadata.devDependencies.electron,
-    prune: false, extraResource: [helper],
+    prune: false, extraResource: helpers,
     appBundleId: 'local.max.einsager.desktop',
     extendInfo: { NSMicrophoneUsageDescription: 'Record speech and send it to ChatGPT for transcription using your Codex login.' },
   }));

@@ -1,6 +1,7 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import type { Delivery, DesktopBridge, DesktopInfo, SessionStatus, TranscriptResult } from '../shared/contract';
 import { MicrophoneRecording, RECORDING_SECONDS } from './audio';
+import { HoldGesture, type RecordingMode } from './gesture';
 
 declare global { interface Window { einsager?: DesktopBridge } }
 type State = 'idle' | 'requesting' | 'recording' | 'processing' | 'message' | 'failure';
@@ -32,6 +33,10 @@ export function App() {
   const generation = useRef(0);
   const messageTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
   const gesture = useRef<{ x: number; y: number; moved: boolean }>(undefined);
+  const holdGesture = useRef(new HoldGesture());
+  const mode = useRef<RecordingMode>(undefined);
+  // Hold-to-talk records without buttons: releasing the key is the control.
+  const [holding, setHolding] = useState(false);
 
   function change(next: State, text = '', retryAllowed = false) {
     clearTimeout(messageTimer.current);
@@ -44,6 +49,8 @@ export function App() {
     const status: SessionStatus = next === 'failure' ? { state: 'failure', message: text, retryable: retryAllowed }
       : { state: next === 'message' ? 'idle' : next };
     api?.status(status);
+    api?.visible(next !== 'idle');
+    if (next !== 'requesting' && next !== 'recording') { mode.current = undefined; setHolding(false); }
   }
   function feedback(text: string) {
     change('message', text);
@@ -76,11 +83,36 @@ export function App() {
     catch { if (id === generation.current) change('failure', 'Could not transcribe. Start a new dictation.'); }
   }
   async function toggle() {
+    // The hands-free shortcut during a hold keeps recording without the key, as in the native app.
+    if (mode.current === 'hold') { lockHandsFree(); return; }
     if (stateRef.current === 'recording') { await finish(); return; }
     if (['requesting', 'processing'].includes(stateRef.current)) return;
+    holdGesture.current.restart();
+    await start('handsFree');
+  }
+  function lockHandsFree() {
+    mode.current = 'handsFree';
+    setHolding(false);
+  }
+  function holdPressed() {
+    const canStart = ['idle', 'message', 'failure'].includes(stateRef.current);
+    const step = holdGesture.current.press(performance.now() / 1000, canStart, mode.current);
+    if (step === 'begin-hold') void start('hold');
+    if (step === 'begin-hands-free') void start('handsFree');
+    if (step === 'lock') lockHandsFree();
+    if (step === 'cancel') void cancel();
+  }
+  function holdReleased() {
+    const step = holdGesture.current.release(performance.now() / 1000, mode.current, stateRef.current === 'requesting');
+    if (step === 'finish') void finish();
+    if (step === 'cancel') void cancel();
+  }
+  async function start(next: RecordingMode) {
     if (!api) { feedback('Open the desktop app to record.'); return; }
     const id = ++generation.current;
     change('requesting', 'Starting microphone…');
+    mode.current = next;
+    setHolding(next === 'hold');
     try {
       await api.begin();
       if (id !== generation.current) return;
@@ -117,13 +149,24 @@ export function App() {
     void api?.info().then(setInfo);
     const action = api?.onAction(value => {
       if (value === 'toggle') void toggle();
+      if (value === 'finish') void finish();
+      if (value === 'hold-pressed') holdPressed();
+      if (value === 'hold-released') holdReleased();
+      if (value === 'hold-interrupted' && mode.current === 'hold') void cancel();
       if (value === 'cancel') void cancel();
       if (value === 'retry') void retry();
       if (value === 'copy') void copy();
     });
-    const edge = api?.onEdge(edge => setInfo(previous => ({ ...previous, edge })));
-    return () => { action?.(); edge?.(); };
+    const updates = api?.onInfo(setInfo);
+    return () => { action?.(); updates?.(); };
   }, [api, info.pasteKey]);
+
+  // A hidden window gets no mouseleave, so drop the hover state while hidden.
+  useEffect(() => {
+    const visibility = () => { if (document.visibilityState === 'hidden') setHovered(false); };
+    document.addEventListener('visibilitychange', visibility);
+    return () => document.removeEventListener('visibilitychange', visibility);
+  }, []);
 
   useEffect(() => () => {
     generation.current++;
@@ -149,8 +192,9 @@ export function App() {
   }, [api]);
 
   const handle = ['idle', 'message'].includes(state) && !hovered;
-  const circles = ['requesting', 'recording', 'failure'].includes(state);
-  const label = message || (state === 'idle' && hovered ? `Click or press ${info.shortcut} to dictate` : '')
+  const circles = ['requesting', 'recording', 'failure'].includes(state) && !(state === 'recording' && holding);
+  const idleHint = info.holdKey ? `Click or hold ${info.holdKey} to dictate` : `Click or press ${info.shortcut} to dictate`;
+  const label = message || (state === 'idle' && hovered ? idleHint : '')
     || (secondsLeft !== undefined && state === 'recording' ? `Recording stops in ${secondsLeft}s` : '');
 
   return <div ref={container} className={`surface ${info.edge}`} onContextMenu={event => { event.preventDefault(); api?.menu(); }}>
@@ -185,7 +229,7 @@ export function App() {
       }}>
       {circles && <button className="circle cancel" aria-label="Cancel dictation" onClick={() => void cancel()}><svg viewBox="0 0 18 18"><path d="M12 6L6 12M6 6l6 6" /></svg></button>}
       {!handle && <div className="waveform" aria-hidden="true">{levels.map((level, index) => <i key={index} style={{ height: 2.25 + (state === 'recording' ? level : 0) * 13.75 }} />)}</div>}
-      {state === 'recording' && <button className="circle finish" aria-label="Finish dictation" onClick={() => void finish()}><svg viewBox="0 0 18 18"><path d="M13 6l-5.5 5.5L5 9" /></svg></button>}
+      {state === 'recording' && !holding && <button className="circle finish" aria-label="Finish dictation" onClick={() => void finish()}><svg viewBox="0 0 18 18"><path d="M13 6l-5.5 5.5L5 9" /></svg></button>}
       {state === 'processing' && <div className="processing-dots" aria-label="Transcribing"><i/><i/><i/></div>}
     </div>
   </div>;

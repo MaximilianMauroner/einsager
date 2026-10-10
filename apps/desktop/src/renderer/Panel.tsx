@@ -1,12 +1,13 @@
 import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
-import type { ClipboardMode, DockEdge, HistoryEntry, PanelBridge, PanelSettings, PanelState, SessionStatus } from '../shared/contract';
+import type { ClipboardMode, DockEdge, HistoryEntry, KeyboardState, PanelBridge, PanelSettings, PanelState, SessionStatus } from '../shared/contract';
+import { keyCaps } from './keys';
 
 declare global { interface Window { einsagerPanel?: PanelBridge } }
 
 /** The panel's tallest height. A shorter work area lowers it, so the lists scroll inside the window. */
 const MAX_HEIGHT = 600;
 const initial: PanelState = {
-  status: { state: 'idle' }, history: [], settings: { edge: 'bottom', clipboard: 'if-paste-fails', keepHistory: true },
+  status: { state: 'idle' }, history: [], settings: { edge: 'bottom', clipboard: 'if-paste-fails', keepHistory: true, showPill: true },
   codexFolder: '~/.codex', shortcut: 'Ctrl+Alt+Space', shortcutAvailable: true, canPaste: false, canPositionWindow: true,
 };
 const clipboardChoices: { mode: ClipboardMode; label: string; detail: string }[] = [
@@ -39,7 +40,34 @@ function Icon({ name }: { name: keyof typeof icons }) {
 }
 
 function Keys({ shortcut }: { shortcut: string }) {
-  return <span className="keys">{shortcut.split('+').map(key => <kbd key={key}>{key}</kbd>)}</span>;
+  return <span className="keys">{keyCaps(shortcut).map((key, index) => <kbd key={index}>{key}</kbd>)}</span>;
+}
+
+function ShortcutRows({ keyboard, shortcutAvailable, api }: { keyboard: KeyboardState; shortcutAvailable: boolean; api?: PanelBridge }) {
+  const row = (target: 'hold' | 'handsFree', label: string) => {
+    const capturing = keyboard.capturing === target;
+    return <div className="row">
+      <span>{label}</span>
+      <button className={capturing ? 'keys-button capturing' : 'keys-button'} disabled={!keyboard.trusted} aria-label={`Change the ${label.toLowerCase()} shortcut`}
+        onClick={() => api?.shortcut(capturing ? { command: 'stopCapture' } : { command: 'capture', target })}>
+        {capturing ? 'Press keys…' : <Keys shortcut={keyboard[target]} />}
+      </button>
+    </div>;
+  };
+  return <>
+    <div className="group-head">
+      <span>Shortcuts</span>
+      <button className="quiet" disabled={!keyboard.trusted} onClick={() => api?.shortcut({ command: 'reset' })}>Reset to Fn</button>
+    </div>
+    {row('hold', 'Hold to talk')}
+    {row('handsFree', 'Hands-free')}
+    {keyboard.capturing && <p className="note inset">Press the new keys, then release them. Esc cancels.</p>}
+    {keyboard.error && <p className="note inset alarm">{keyboard.error}</p>}
+    {!keyboard.trusted && <div className="row">
+      <span className="wrap">Allow Accessibility so einsager can see Fn. {shortcutAvailable ? 'Ctrl+Alt+Space works until then.' : 'Another app uses Ctrl+Alt+Space.'}</span>
+      <button className="action" onClick={() => api?.shortcut({ command: 'prompt' })}>Allow…</button>
+    </div>}
+  </>;
 }
 
 /** The pill's resting dots, so the panel's start control reads as the same object as the floating pill. */
@@ -151,6 +179,11 @@ export function Panel() {
           <button className="switch" role="switch" aria-checked={settings.keepHistory} aria-labelledby="keep-history"
             onClick={() => update({ keepHistory: !settings.keepHistory })} />
         </div>
+        <div className="row">
+          <span id="show-pill">Show pill when idle</span>
+          <button className="switch" role="switch" aria-checked={settings.showPill} aria-labelledby="show-pill"
+            onClick={() => update({ showPill: !settings.showPill })} />
+        </div>
         <label className="row">
           <span>Dock the pill</span>
           <select value={settings.edge} disabled={!state.canPositionWindow} onChange={event => {
@@ -161,10 +194,10 @@ export function Panel() {
         <button className="row" onClick={() => void api?.chooseCodexHome()}>
           <span>Codex login folder</span><span className="value"><span className="path">{state.codexFolder}</span><Icon name="right" /></span>
         </button>
-        <div className="row">
+        {state.keyboard ? <ShortcutRows keyboard={state.keyboard} shortcutAvailable={state.shortcutAvailable} api={api} /> : <div className="row">
           <span>Shortcut</span>
           <span className="value">{!state.shortcutAvailable && 'In use by another app'}<Keys shortcut={state.shortcut} /></span>
-        </div>
+        </div>}
         <div className="row">
           {confirmClear ? <>
             <span>Delete all {history.length} transcripts?</span>
@@ -187,7 +220,9 @@ export function Panel() {
   const newest = filter ? undefined : history.at(-1)?.id;
   const busy = status.state !== 'idle';
   const recording = status.state === 'requesting' || status.state === 'recording';
-  let hint: ReactNode = state.shortcutAvailable ? <>Click or press <Keys shortcut={state.shortcut} /></> : 'Click to start. Another app uses the shortcut.';
+  const keyboard = state.keyboard?.trusted ? state.keyboard : undefined;
+  let hint: ReactNode = keyboard ? <>Click or hold <Keys shortcut={keyboard.hold} /></>
+    : state.shortcutAvailable ? <>Click or press <Keys shortcut={state.shortcut} /></> : 'Click to start. Another app uses the shortcut.';
   if (status.state === 'requesting') hint = 'Starting microphone…';
   if (status.state === 'recording') hint = 'Finish to transcribe, or cancel';
   if (status.state === 'processing') hint = 'Transcribing…';
@@ -249,7 +284,7 @@ export function Panel() {
       {recording ? <div className="pill">
         <button className="circle cancel" aria-label="Cancel dictation" onClick={() => api?.act('cancel')}><svg viewBox="0 0 24 24"><path d="M15.5 8.5l-7 7M8.5 8.5l7 7" /></svg></button>
         <RestingWave />
-        {status.state === 'recording' && <button className="circle finish" aria-label="Finish dictation" onClick={() => api?.act('toggle')}><svg viewBox="0 0 24 24"><path d="M17 8.5l-6.5 6.5L7 11.5" /></svg></button>}
+        {status.state === 'recording' && <button className="circle finish" aria-label="Finish dictation" onClick={() => api?.act('finish')}><svg viewBox="0 0 24 24"><path d="M17 8.5l-6.5 6.5L7 11.5" /></svg></button>}
       </div> : status.state === 'processing' ? <div className="pill" role="img" aria-label="Transcribing">
         <RestingWave /><span className="dots" aria-hidden="true"><i /><i /><i /></span>
       </div> : <button className="pill start" aria-label="Start dictation" onClick={() => api?.act('toggle')}><RestingWave /></button>}

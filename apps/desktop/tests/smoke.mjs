@@ -99,6 +99,23 @@ try {
   assert.match(await panelText(), /Listening/);
   await page.getByRole('button', { name: 'Cancel dictation' }).click();
   await page.getByRole('button', { name: 'Start hands-free dictation' }).waitFor();
+
+  // With "Show pill when idle" off, the pill appears only for a session.
+  const pillVisible = () => application.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()
+    .find(window => window.webContents.getURL().endsWith('index.html')).isVisible());
+  const toggleShowPill = () => inPanel('document.querySelector(\'[aria-labelledby="show-pill"]\').click()');
+  await clickInPanel('[aria-label="Settings"]');
+  await expect.poll(panelText).toContain('Show pill when idle');
+  await toggleShowPill();
+  await expect.poll(pillVisible).toBe(false);
+  await application.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()
+    .find(window => window.webContents.getURL().endsWith('index.html')).webContents.send('action', 'toggle'));
+  await expect.poll(pillVisible).toBe(true);
+  await page.getByRole('button', { name: 'Cancel dictation' }).click();
+  await expect.poll(pillVisible).toBe(false);
+  await toggleShowPill();
+  await expect.poll(pillVisible).toBe(true);
+  await clickInPanel('.back');
   const info = await page.evaluate(() => window.einsager.info());
   assert.equal(info.pasteKey, process.platform === 'darwin' ? '⌘V' : 'Ctrl+V');
   if (waylandPolicy) {
@@ -201,7 +218,7 @@ try {
     await page.screenshot({ path: `.agents/artifacts/${evidence}-${edge}-hover.png`, omitBackground: true });
   }
   assert.deepEqual(errors, []);
-  console.log(`${evidence}: launch, recording, safe Copy/recovery, login error, Retry capability, tray panel state and settings, delayed Mac info, cancellation, and ${waylandPolicy ? 'compositor-owned placement with working resize' : 'side docking'} passed. No request sent.`);
+  console.log(`${evidence}: launch, recording, safe Copy/recovery, login error, Retry capability, tray panel state and settings, hidden idle pill, delayed Mac info, cancellation, and ${waylandPolicy ? 'compositor-owned placement with working resize' : 'side docking'} passed. No request sent.`);
 } finally {
   await application?.close();
   await rm(directory, { recursive: true, force: true });
