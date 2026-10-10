@@ -1,0 +1,7 @@
+# Use Apple's compiler even when a shell tool named cc is earlier in PATH.
+[target.'cfg(target_os = "macos")']
+linker = "/usr/bin/clang"
+
+[env]
+CC_aarch64_apple_darwin = "/usr/bin/clang"
+CC_x86_64_apple_darwin = "/usr/bin/clang"

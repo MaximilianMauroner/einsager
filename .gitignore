@@ -1,4 +1,6 @@
-.venv/
 dist/
 .agents/tmp/
-__pycache__/
+target/
+node_modules/
+release/
+.agents/artifacts/

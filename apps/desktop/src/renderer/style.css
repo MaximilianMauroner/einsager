@@ -1,0 +1,26 @@
+:root { color-scheme: dark; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; color: #fff; }
+* { box-sizing: border-box; }
+body { margin: 0; background: transparent; overflow: hidden; }
+button { font: inherit; cursor: pointer; }
+button:focus-visible, .pill:focus-visible { outline: 2px solid #f29be6; outline-offset: 2px; }
+button:disabled { opacity: .5; cursor: default; }
+.surface { display: flex; flex-direction: column; align-items: center; gap: 6px; width: max-content; max-width: 400px; user-select: none; }
+.surface.top { flex-direction: column-reverse; }
+.surface.left { align-items: flex-start; }
+.surface.right { align-items: flex-end; }
+.label { display: flex; align-items: center; gap: 10px; max-width: 360px; padding: 8px 16px; min-height: 34px; border-radius: 20px; background: #000; font-size: 14px; text-align: center; }
+.label span { overflow-wrap: anywhere; line-height: 18px; }
+.label button { flex-shrink: 0; padding: 0; border: 0; background: none; color: #f29be6; font-weight: 600; }
+.pill { display: flex; align-items: center; justify-content: center; gap: 4px; height: 28px; padding: 0 15px; border: 1px solid #4d4a42; border-radius: 14px; background: #1a1a1a; cursor: pointer; touch-action: none; }
+.pill:has(.circle) { padding: 0 5px; }
+.pill:has(.cancel):not(:has(.finish)) { padding-right: 15px; }
+.pill.handle { width: 40px; height: 8px; padding: 0; border-color: #ffffff8c; background: #1a1a1a99; }
+.circle { width: 18px; height: 18px; padding: 0; border: 0; border-radius: 50%; flex-shrink: 0; }
+.circle.cancel { background: #71716e; color: #fcfcfb; }
+.circle.finish { background: #fcfcfb; color: #1a1a1a; }
+.circle:hover { filter: brightness(.9); }
+.circle svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width: 1.5; stroke-linecap: round; stroke-linejoin: round; }
+.waveform { display: flex; align-items: center; gap: 2px; height: 16px; width: 40.5px; flex-shrink: 0; }
+.waveform i { width: 2.25px; flex-shrink: 0; border-radius: 2px; background: #ffffeb; }
+.processing-dots { display: flex; gap: 3px; margin-left: 6px; }
+.processing-dots i { width: 3px; height: 3px; border-radius: 50%; background: #e8e6f5; }

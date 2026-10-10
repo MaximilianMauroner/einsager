@@ -1,0 +1,3 @@
+[workspace]
+members = ["crates/transcription"]
+resolver = "3"
