@@ -49,13 +49,11 @@ jobs:
         run: |
           pnpm test:desktop
           pnpm test:packaged
-      - name: Native Mac checks and build
+      - name: macOS shortcut tests and app signature
         if: runner.os == 'macOS'
         run: |
-          zsh apps/macos/scripts/check.sh
-          zsh apps/macos/scripts/build.sh
-          plutil -lint dist/einsager.app/Contents/Info.plist
-          codesign --verify --deep --strict dist/einsager.app
+          pnpm test:macos
+          codesign --verify --deep --strict release/einsager-darwin-*/einsager.app
       - uses: actions/upload-artifact@v4
         if: always()
         with:

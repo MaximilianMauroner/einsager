@@ -19,16 +19,22 @@ try {
   await writeFile(join(source, 'package.json'), JSON.stringify({
     name: metadata.name, version: metadata.version, license: metadata.license, main: metadata.main,
   }));
-  // macOS shows this icon in Finder, alerts, and the Privacy & Security lists. The native app's script renders the logo.
+  // macOS shows this icon in Finder, alerts, and the Privacy & Security lists.
   const icon = process.platform === 'darwin' ? join(staging, 'einsager.icns') : undefined;
-  if (icon) execFileSync('swift', ['-j', '1', 'apps/macos/scripts/make-app-icon.swift', icon], { stdio: 'inherit' });
-  console.log(await packager({
+  if (icon) execFileSync('swift', ['-j', '1', 'apps/desktop/scripts/make-app-icon.swift', icon], { stdio: 'inherit' });
+  const outputs = await packager({
     dir: source, name: 'einsager', out: resolve('release'), overwrite: true,
     platform: process.platform, arch: process.arch, electronVersion: metadata.devDependencies.electron,
     prune: false, extraResource: helpers, icon,
     appBundleId: 'local.max.einsager.desktop',
     extendInfo: { NSMicrophoneUsageDescription: 'Record speech and send it to ChatGPT for transcription using your Codex login.' },
-  }));
+  });
+  // Packaging edits Info.plist, which invalidates Electron's signature. A fresh ad-hoc signature
+  // lets macOS offer "Open Anyway" for a downloaded copy instead of calling it damaged.
+  if (process.platform === 'darwin') {
+    execFileSync('codesign', ['--force', '--deep', '--sign', '-', join(outputs[0], 'einsager.app')], { stdio: 'inherit' });
+  }
+  console.log(outputs);
 } finally {
   await rm(staging, { recursive: true, force: true });
 }

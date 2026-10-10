@@ -11,6 +11,11 @@ export class PrivateFile {
 
   read() { return readFile(this.file, 'utf8'); }
 
+  /** Renames a file that cannot be read, so the next write cannot destroy what it still holds. */
+  async keepAside() {
+    await rename(this.file, `${this.file}.unreadable-${Date.now()}`);
+  }
+
   write(contents: string) {
     const next = this.writing.catch(() => undefined).then(async () => {
       await writeFile(this.file + '.tmp', contents, { mode: 0o600 });

@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { chmod, mkdtemp, rm, stat, writeFile } from 'node:fs/promises';
+import { chmod, mkdtemp, readdir, readFile, rm, stat, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { describeRecording, HISTORY_LIMIT, TranscriptHistory } from '../src/main/history.ts';
@@ -83,6 +83,11 @@ test('history keeps the newest entries and skips damaged ones', () => withFile(a
   const unreadable = new TranscriptHistory(file);
   await unreadable.load();
   assert.equal(unreadable.entries.length, 0);
+  // The next transcript must not overwrite text that a person could still recover from the damaged file.
+  await unreadable.add('after damage', { seconds: 1, voiceprint: [] });
+  const kept = (await readdir(dirname(file))).filter(name => name.startsWith('history.json.unreadable-'));
+  assert.equal(kept.length, 1);
+  assert.equal(await readFile(join(dirname(file), kept[0]), 'utf8'), '{ not json');
 }));
 
 test('a recording yields its length and a loudness shape, never its audio', () => {

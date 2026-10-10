@@ -1,0 +1,85 @@
+name: Release
+
+# Pushing a version tag such as v0.1.0 builds the app on each OS and drafts a GitHub release.
+# Publish the draft by hand after checking its notes and downloads.
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: read
+
+jobs:
+  version:
+    name: Tag matches the app version
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: |
+          version="${GITHUB_REF_NAME#v}"
+          test "$(node -p "require('./package.json').version")" = "$version"
+          grep -qx "version = \"$version\"" crates/transcription/Cargo.toml
+
+  package:
+    name: Package (${{ matrix.os }})
+    needs: version
+    strategy:
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    env:
+      CARGO_BUILD_JOBS: 1
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - uses: pnpm/action-setup@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm build
+      - run: pnpm package
+      - name: Packaged app smoke test
+        run: ${{ runner.os == 'Linux' && 'xvfb-run -a ' || '' }}pnpm test:packaged
+      - name: Archive
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          arch="$(node -p process.arch)"
+          folder="einsager-$(node -p process.platform)-$arch"
+          cd release
+          case "$RUNNER_OS" in
+            Linux) chmod 755 "$folder" && tar -czf "einsager-$version-linux-$arch.tar.gz" "$folder" ;;
+            macOS) ditto -c -k --keepParent "$folder/einsager.app" "einsager-$version-macos-$arch.zip" ;;
+            Windows) 7z a -bd "einsager-$version-windows-$arch.zip" "$folder" ;;
+          esac
+      - uses: actions/upload-artifact@v4
+        with:
+          name: einsager-${{ runner.os }}
+          path: |
+            release/*.zip
+            release/*.tar.gz
+          if-no-files-found: error
+
+  release:
+    name: Draft release
+    needs: package
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: assets
+          merge-multiple: true
+      - name: Create draft release
+        working-directory: assets
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          sha256sum * > SHA256SUMS.txt
+          gh release create "$GITHUB_REF_NAME" * --draft --verify-tag --title "einsager $GITHUB_REF_NAME" --generate-notes

@@ -1,13 +1,16 @@
 import AppKit
 import Carbon
 
-/// Global shortcuts for the portable app on macOS. Electron cannot see Fn or key releases, so this
-/// helper runs the native app's shortcut logic in an event tap and reports to the main process.
+/// Global shortcuts and paste for the app on macOS. Electron cannot see Fn or key releases, so this
+/// helper runs the shortcut logic in `KeyboardShortcuts.swift` in an event tap and reports to the main process.
+/// It also sends the paste keys, because the same Accessibility access lets it check the focused text field.
 ///
 /// Input, one JSON object per line: `{"command": "capture", "target": "hold" | "handsFree"}`,
-/// `{"command": "stopCapture"}`, `{"command": "reset"}`, or `{"command": "prompt"}`.
-/// Output, one JSON object per line: `{"event": "state", ...}` after every change, and
-/// `{"event": "action", "action": "holdPressed" | "holdReleased" | "toggle" | "interrupted"}`.
+/// `{"command": "stopCapture"}`, `{"command": "reset"}`, `{"command": "prompt"}`,
+/// `{"command": "target", "id": "…"}`, or `{"command": "paste", "id": "…"}`.
+/// Output, one JSON object per line: `{"event": "state", ...}` after every change,
+/// `{"event": "action", "action": "holdPressed" | "holdReleased" | "toggle" | "interrupted"}`, and
+/// `{"event": "reply", "id": "…", "ok": true | false}` for each target or paste command.
 /// The helper exits when its input closes, so it never outlives the app.
 @main
 final class KeyboardHelper {
@@ -27,6 +30,8 @@ final class KeyboardHelper {
     private var problem: String?
     private var trustTimer: Timer?
     private var buffer = Data()
+    /// The app and text field that had focus when the latest recording began, so a paste never lands elsewhere.
+    private var pasteTarget: (id: String, target: PasteTarget)?
 
     private func start() {
         FileHandle.standardInput.readabilityHandler = { [weak self] handle in
@@ -68,6 +73,15 @@ final class KeyboardHelper {
             problem = nil
             settings.reset()
             discardInput()
+        case "target":
+            guard let id = message["id"] else { return }
+            pasteTarget = PasteTarget.capture().map { (id: id, target: $0) }
+            write(["event": "reply", "id": id, "ok": pasteTarget != nil])
+            return
+        case "paste":
+            guard let id = message["id"] else { return }
+            write(["event": "reply", "id": id, "ok": paste(into: id)])
+            return
         case "prompt":
             let options = [kAXTrustedCheckOptionPrompt.takeUnretainedValue() as String: true] as CFDictionary
             _ = AXIsProcessTrustedWithOptions(options)
@@ -151,13 +165,14 @@ final class KeyboardHelper {
         switch result.action {
         case .holdPressed: emit(action: "holdPressed")
         case .holdReleased: emit(action: "holdReleased")
+        case .holdInterrupted: emit(action: "interrupted")
         case .toggle: emit(action: "toggle")
         case .cancel, nil: break
         }
         return result.consume ? nil : Unmanaged.passUnretained(event)
     }
 
-    /// Records the next shortcut, as the native shortcut editor does. Keys pressed meanwhile reach no app.
+    /// Records the next shortcut. Keys pressed meanwhile reach no app.
     private func capture(_ type: CGEventType, event: CGEvent, keyCode: UInt16, hold: Bool) -> Unmanaged<CGEvent>? {
         if type == .keyUp { return nil }
         if type == .keyDown && keyCode == UInt16(kVK_Escape) {
@@ -199,8 +214,51 @@ final class KeyboardHelper {
 
     private func emit(action: String) { write(["event": "action", "action": action]) }
 
+    /// Sends Command+V only while the recording's app and text field still have focus.
+    private func paste(into id: String) -> Bool {
+        guard let current = pasteTarget, current.id == id, current.target.isStillFocused,
+              let down = CGEvent(keyboardEventSource: nil, virtualKey: CGKeyCode(kVK_ANSI_V), keyDown: true),
+              let up = CGEvent(keyboardEventSource: nil, virtualKey: CGKeyCode(kVK_ANSI_V), keyDown: false) else { return false }
+        down.flags = .maskCommand
+        up.flags = .maskCommand
+        down.post(tap: .cghidEventTap)
+        up.post(tap: .cghidEventTap)
+        return true
+    }
+
     private func write(_ object: [String: Any]) {
         guard let data = try? JSONSerialization.data(withJSONObject: object) else { return }
         FileHandle.standardOutput.write(data + Data([0x0A]))
+    }
+}
+
+/// The focused app and accessibility element. Comparing them later shows whether the user moved elsewhere.
+struct PasteTarget {
+    let application: NSRunningApplication
+    let element: AXUIElement
+
+    /// Returns nothing without Accessibility access, for einsager itself, or when no element has focus.
+    static func capture() -> PasteTarget? {
+        // The helper's parent is the einsager app, whose own windows are never a paste target.
+        guard AXIsProcessTrusted(), let application = NSWorkspace.shared.frontmostApplication,
+              application.processIdentifier != getppid(),
+              let element = focusedElement(in: application) else { return nil }
+        return PasteTarget(application: application, element: element)
+    }
+
+    var isStillFocused: Bool {
+        guard AXIsProcessTrusted(), !application.isTerminated,
+              NSWorkspace.shared.frontmostApplication?.processIdentifier == application.processIdentifier,
+              let current = Self.focusedElement(in: application) else { return false }
+        return CFEqual(element, current)
+    }
+
+    private static func focusedElement(in application: NSRunningApplication) -> AXUIElement? {
+        let app = AXUIElementCreateApplication(application.processIdentifier)
+        var value: CFTypeRef?
+        guard AXUIElementCopyAttributeValue(app, kAXFocusedUIElementAttribute as CFString, &value) == .success,
+              let value = value, CFGetTypeID(value) == AXUIElementGetTypeID() else { return nil }
+        // AX guarantees this type after the type-ID check.
+        return unsafeBitCast(value, to: AXUIElement.self)
     }
 }

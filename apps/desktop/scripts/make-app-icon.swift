@@ -2,7 +2,7 @@ import AppKit
 
 let output = URL(fileURLWithPath: CommandLine.arguments[1])
 guard let logo = NSImage(contentsOfFile: "assets/icons/einsager-breath.pdf") else {
-    fatalError("The approved Breath e logo is missing")
+    fatalError("The Breath e logo is missing")
 }
 let iconset = FileManager.default.temporaryDirectory
     .appendingPathComponent("einsager-\(UUID()).iconset", isDirectory: true)

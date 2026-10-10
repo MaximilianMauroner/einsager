@@ -2,6 +2,10 @@
 [target.'cfg(target_os = "macos")']
 linker = "/usr/bin/clang"
 
+# Link the C runtime into the helper, so it starts on Windows without the Visual C++ Redistributable.
+[target.'cfg(all(windows, target_env = "msvc"))']
+rustflags = ["-C", "target-feature=+crt-static"]
+
 [env]
 CC_aarch64_apple_darwin = "/usr/bin/clang"
 CC_x86_64_apple_darwin = "/usr/bin/clang"

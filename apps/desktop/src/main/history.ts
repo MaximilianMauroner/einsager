@@ -17,11 +17,19 @@ export class TranscriptHistory {
 
   get entries(): readonly HistoryEntry[] { return this.items; }
 
+  /** A missing file starts an empty history. An unreadable one is kept aside, because the next save replaces it. */
   async load() {
-    try {
-      const value: unknown = JSON.parse(await this.file.read());
-      if (Array.isArray(value)) this.items = value.filter(isEntry).slice(-HISTORY_LIMIT);
-    } catch { /* A missing or unreadable file starts an empty history. */ }
+    let value: unknown;
+    try { value = JSON.parse(await this.file.read()); }
+    catch (error) {
+      if (error instanceof Error && 'code' in error && error.code === 'ENOENT') return;
+    }
+    if (Array.isArray(value)) {
+      this.items = value.filter(isEntry).slice(-HISTORY_LIMIT);
+      return;
+    }
+    try { await this.file.keepAside(); }
+    catch (error) { console.error('Could not keep the unreadable history file:', error); }
   }
 
   async add(text: string, recording: Recording, at = Date.now()) {

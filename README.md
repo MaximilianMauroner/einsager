@@ -1,130 +1,131 @@
 # einsager
 
-einsager is an open-source dictation app with a native Mac version and a new
-portable desktop layer for Linux, macOS, and Windows. It tries to make your existing
-Codex login work as a Wispr Flow alternative on your own computer: hold a key,
-speak, and the app sends a paste to the field you were typing in when focus is
-still safe. You can also paste the transcript by hand.
+Hold a key, speak, and the text appears in the field where you were typing.
+einsager is a desktop dictation app for macOS, Windows, and Linux. It
+transcribes with the ChatGPT login that Codex already keeps on your computer,
+so it needs no separate account, subscription, or API key.
 
-It is an independent project. It is not affiliated with OpenAI or Wispr.
+> [!IMPORTANT]
+> einsager sends your audio to ChatGPT's internal transcription endpoint, the
+> one that Codex uses. It is not a public API and can change or stop working at
+> any time. einsager is an independent project, not affiliated with OpenAI or
+> Wispr.
 
-See the [architecture guide](docs/architecture.md) for the source map,
-platform ownership, runtime boundaries, and CPU build targets.
+## Features
 
-## How it works
+- A small floating pill with a live waveform. Dock it to any screen edge, or
+  hide it between dictations.
+- Start with a click or a global shortcut (**Ctrl+Alt+Space** by default). On
+  macOS, hold **Fn** to talk.
+- Automatic paste into the original text field on macOS and Linux X11. The text
+  is never sent with Enter, and it stays on the clipboard if paste is not safe.
+- A tray panel with searchable transcript history, Retry for failed uploads,
+  microphone choice, and clipboard settings.
 
-The native Mac flow below remains available. The portable app uses Electron for
-recording and the pill, then calls the same Rust helper. It copies the transcript
-and can attempt automatic paste on Linux X11 with `xdotool`. See
-[portable desktop setup](docs/cross-platform.md) and [Linux setup and limits](docs/linux.md).
+## Install
 
-- A native Swift menu-bar app records your voice and shows a small floating bar
-  with a live waveform.
-- A bundled Rust helper sends the recording to ChatGPT for transcription. It
-  uses the login that Codex stores in `~/.codex/auth.json` (or `$CODEX_HOME`).
-- The app pastes the text into the field that had focus when you started. The
-  text also stays on the clipboard, so you can paste it by hand if needed.
+You need a ChatGPT login in Codex that is stored in a file, normally
+`~/.codex/auth.json`. Run `codex login` if you do not have one. See
+[Codex login](docs/usage.md#codex-login) if einsager cannot find it.
 
-```mermaid
-flowchart TD
-    start(["Hold Fn, press Fn+Space, or click the bar"]) --> target["Remember the focused text field"]
-    target --> mic{"Microphone allowed?"}
-    mic -- No --> micHelp["Bar explains how to allow access"]
-    mic -- Yes --> record["Record audio to a temporary file<br/>Bar shows the live waveform"]
-    record --> stop{"How did recording end?"}
-    stop -- "Escape or cancel button" --> discard["Delete the audio"]
-    stop -- "Release Fn, finish button,<br/>or 20-minute limit" --> heard{"At least 0.5 s<br/>with sound?"}
-    heard -- No --> discard
-    heard -- Yes --> helper["Swift app runs the bundled Rust helper<br/>einsager-transcribe with the audio file"]
-    helper --> login["Helper reads the Codex login<br/>~/.codex/auth.json or $CODEX_HOME"]
-    login --> upload["Helper uploads the audio to<br/>chatgpt.com/backend-api/transcribe"]
-    upload --> result{"Transcript returned?"}
-    result -- No --> failure["Bar shows the error and Retry"]
-    failure -- Retry --> helper
-    failure -- "Cancel or new dictation" --> discard
-    result -- Yes --> cleanup["Delete the audio<br/>Keep nonempty text for Copy last"]
-    cleanup --> speech{"Nonempty transcript?"}
-    speech -- No --> noSpeech["Bar shows No speech detected"]
-    speech -- Yes --> clipboard{"Clipboard write succeeded?"}
-    clipboard -- No --> copyLast["Bar offers Copy last<br/>to retry the clipboard write"]
-    copyLast --> clipboard
-    clipboard -- Yes --> focus{"Same text field still focused<br/>and Accessibility allowed?"}
-    paste["Send ⌘V to the original field<br/>Text stays available for manual paste"]
-    focus -- No --> manual["Bar asks you to press ⌘V"]
-    focus -- Yes --> delay["Wait 0.15 s; recheck focus<br/>and clipboard ownership"]
-    delay -- "Focus changed" --> manual
-    delay -- "Clipboard changed" --> copyLast
-    delay -- "Still safe" --> paste
+Download the file for your system from the
+[latest release](https://github.com/MaximilianMauroner/einsager/releases/latest):
+
+| System | File |
+|---|---|
+| macOS, Apple silicon | `einsager-<version>-macos-arm64.zip` |
+| Windows, x64 | `einsager-<version>-windows-x64.zip` |
+| Linux, x64 | `einsager-<version>-linux-x64.tar.gz` |
+
+The macOS build needs macOS 12 or later. The Linux build needs glibc 2.34 or
+later, for example Ubuntu 22.04 or Debian 12. For an Intel Mac or an ARM
+computer, [build from source](#build-from-source).
+`SHA256SUMS.txt` in the release lists the checksum of each file.
+
+The builds are not signed by Apple or Microsoft, so the first start needs one
+extra step.
+
+### macOS
+
+1. Unzip the file and move `einsager.app` to **Applications**.
+2. Open einsager. macOS says that it cannot check the app. Click **Done**.
+3. Open **System Settings → Privacy & Security**, find the message about
+   einsager, and click **Open Anyway**. Confirm with your password.
+4. Allow the microphone. For Fn shortcuts and automatic paste, turn on einsager
+   in the Accessibility list that opens.
+
+einsager runs in the menu bar and has no Dock icon.
+
+### Windows
+
+1. Unzip the file, open the `einsager-win32-x64` folder, and run
+   `einsager.exe`.
+2. If Windows SmartScreen appears, click **More info → Run anyway**.
+
+### Linux
+
+```sh
+tar -xzf einsager-*-linux-x64.tar.gz
+cd einsager-linux-x64
+# Chromium's sandbox helper must belong to root on most current distributions.
+sudo chown root:root chrome-sandbox
+sudo chmod 4755 chrome-sandbox
+./einsager
 ```
 
-The app and the helper run on your computer, but transcription does not. Audio goes
-to `chatgpt.com/backend-api/transcribe`. This is the internal endpoint that
-Codex uses, not a public API, so it can change or stop working without notice.
+Install `xdotool` for automatic paste on X11. See
+[Linux setup and limits](docs/linux.md) for the sandbox, Wayland, and tray.
 
-## Requirements
+## Use
 
-- Portable desktop: Node.js 22.18+ and pnpm on Linux, macOS, or Windows
-- Native Mac app: macOS with Xcode Command Line Tools
-- Rust and Cargo
-- A file-based Codex ChatGPT login on this computer (`codex login`)
+| Action | How |
+|---|---|
+| Start or finish | Click the pill, or press **Ctrl+Alt+Space** |
+| Hold to talk (macOS) | Hold **Fn**, then release it |
+| Hands-free (macOS) | Press **Fn+Space**, or double-tap **Fn** |
+| Cancel | Press **Escape**, or click the cross |
+| History and settings | Click the tray icon; on Linux, choose **History and settings…** |
 
-## Build and install
+The [usage guide](docs/usage.md) covers settings, permissions, data handling,
+and what each platform supports.
 
-For the new portable desktop layer (Node.js 22.18+, pnpm, Rust):
+## Privacy
+
+Audio leaves your computer: the bundled helper uploads each recording to
+ChatGPT with your Codex login. The login stays in that helper. History and
+settings stay on your computer, and einsager never stores audio after a
+successful transcription. einsager has no account, analytics, or update check.
+[Details](docs/usage.md#data-and-privacy).
+
+## Build from source
+
+Install Node.js 22.18 or later, pnpm, and Rust. On macOS, also install the Xcode
+Command Line Tools. Then:
 
 ```sh
 pnpm install --frozen-lockfile
 pnpm build
-pnpm start
+pnpm start      # run from the source tree
+pnpm package    # runnable app in release/einsager-<os>-<cpu>/
 ```
 
-Run `pnpm package` to bundle a runnable app for the current OS and architecture.
-The first layer supports hands-free recording, clipboard recovery, and a tray
-panel with transcript history and settings. On macOS it also supports Fn
-hold-to-talk and custom shortcuts; automatic paste is still a native Mac feature.
-Portable WAV
-recording is capped at 10 minutes; native Mac AAC recording retains 20 minutes.
-
-To build and install the native Mac version:
-
-```sh
-zsh apps/macos/scripts/build.sh
-ditto dist/einsager.app /Applications/einsager.app
-open /Applications/einsager.app
-```
-
-On first use, macOS asks for Microphone access. To use Fn shortcuts and
-automatic paste, also enable einsager under **System Settings → Privacy &
-Security → Accessibility**.
-
-## Use the native Mac app
-
-| Action | Default |
-|---|---|
-| Hold to talk | Hold **Fn**, release to insert |
-| Hands-free | **Fn+Space** or click the bar; finish with the check button |
-| Lock hands-free | Double-tap **Fn** |
-| Cancel | **Escape** or the cross button |
-| Fallback hands-free | **Control+Option+Space** (works without Accessibility) |
-
-Choose **Customize shortcuts…** from the menu-bar icon to change the keys.
-Drag the bar to dock it at the bottom, top, left, or right of the screen. Recordings
-stop at 20 minutes.
+`pnpm package` builds for the current system and CPU only.
 
 ## Development
 
 ```sh
-zsh apps/macos/scripts/check.sh
+pnpm check                 # types and unit tests
+cargo fmt --check
+cargo test --locked
+cargo clippy --locked --all-targets -- -D warnings
+pnpm test:desktop          # after pnpm build; on Linux: xvfb-run -a pnpm test:desktop
+pnpm test:packaged         # after pnpm package
+pnpm test:linux            # Linux, with xdotool, under Xvfb or a desktop
+pnpm test:macos            # macOS shortcut logic
 ```
 
-This runs Rust formatting, Clippy, and tests, the native logic checks, and the
-floating bar renders. See [docs/proof-of-concept.md](docs/proof-of-concept.md)
-for permission troubleshooting and the full verification history.
-
-Use `pnpm check` for the portable app's types and unit tests, and
-`pnpm test:desktop` after a desktop build for the fake-microphone smoke test.
-That test uses an empty login folder and sends no transcription request.
-Use `pnpm test:packaged` after `pnpm package` to check the bundled app too.
+- [Architecture](docs/architecture.md): source map, boundaries, and checks.
+- [Releasing](docs/releasing.md): how to publish a new version.
 
 ## License
 
