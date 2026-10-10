@@ -108,8 +108,13 @@ function installIPC() {
     if (typeof width !== 'number' || typeof height !== 'number' || typeof measuredPillHeight !== 'number'
       || !Number.isFinite(width + height + measuredPillHeight)) return;
     pillHeight = Math.min(28, Math.max(8, measuredPillHeight));
-    window.setSize(Math.round(Math.min(420, Math.max(40, width))), Math.round(Math.min(180, Math.max(8, height))));
-    reposition();
+    const size = {
+      width: Math.round(Math.min(420, Math.max(40, width))),
+      height: Math.round(Math.min(180, Math.max(8, height))),
+    };
+    const display = screen.getDisplayMatching(window.getBounds());
+    // Apply size and position together; Linux may still report the previous size after setSize.
+    window.setBounds(dockFrame(size, display.workArea, edge, pillHeight));
   });
   ipcMain.on('drag', (event, dx: unknown, dy: unknown, finished: unknown) => {
     trusted(event);

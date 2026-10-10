@@ -138,7 +138,13 @@ delayed-info check now verifies continuing audio callbacks and a live microphone
 track directly, because a steady fake signal can leave the adaptive waveform
 flat. Side docking now anchors the pill's center and aligns it to the selected
 edge when labels expand. Unit and smoke regressions cover these changes. The
-updated three-OS CI and native Mac checks still need completion.
+next run passed Mac packaging, both launch checks, all 102 native checks, native
+build, plist lint, and code-signature verification. Linux smoke then exposed a
+native resize race: reading bounds immediately after `setSize` can retain the
+previous size and write it back during docking. Resize now applies the requested
+size and dock position in one `setBounds` call. Smoke also waits for renderer and
+native dimensions to agree before measuring side placement. The updated
+three-OS CI still needs completion.
 No live Codex credentials were read or changed, and no
 transcription request was made in this work.
 

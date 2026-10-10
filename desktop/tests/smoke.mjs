@@ -103,6 +103,13 @@ try {
     }, edge);
     await page.evaluate(({ dx, dy }) => window.einsager.drag(dx, dy, true), shift);
     await page.locator(`.surface.${edge}`).waitFor();
+    // Wait for the renderer's resize request to reach the native window before sampling it.
+    await expect.poll(async () => {
+      const surface = await page.locator('.surface').boundingBox();
+      assert.ok(surface);
+      const bounds = await application.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].getBounds());
+      return Math.max(Math.abs(bounds.width - Math.ceil(surface.width)), Math.abs(bounds.height - Math.ceil(surface.height)));
+    }).toBeLessThanOrEqual(1);
     const position = async () => {
       const rect = await pill.boundingBox();
       assert.ok(rect);
