@@ -25,13 +25,14 @@ function fixture(contents: Record<string, Data>[]) {
   return { clipboard, events, contents: () => items.map(item => item.data) };
 }
 
-test('saving reads every type of every item, and restoring writes that data back', async () => {
+test('saving reads every type of every item except Find, and restoring writes that data back', async () => {
   const text = new Blob(['previous'], { type: 'text/plain' });
   const html = new Blob(['<b>previous</b>'], { type: 'text/html' });
   const png = new Blob([new Uint8Array([137, 80, 78, 71])], { type: 'image/png' });
   const bookmark = { title: 'Example', url: 'https://example.com' };
   const previous: Record<string, Data>[] = [{ 'text/plain': text, 'text/html': html }, { 'image/png': png, 'electron application/bookmark': bookmark }];
-  const app = fixture(previous);
+  // macOS reports the Find pasteboard inside the item with real content.
+  const app = fixture([{ ...previous[0], 'electron application/findtext': new Blob(['search']) }, previous[1]]);
   const restore = await app.clipboard.save();
   await app.clipboard.writeText('transcript');
   await restore();
@@ -48,5 +49,14 @@ test('restoring an empty clipboard clears the transcript', async () => {
   await app.clipboard.writeText('transcript');
   await restore();
   assert.deepEqual(app.events, ['write transcript', 'clear']);
+  assert.deepEqual(app.contents(), []);
+});
+
+test('a clipboard that holds only the macOS Find pasteboard counts as empty', async () => {
+  const app = fixture([{ 'electron application/findtext': new Blob(['search']) }]);
+  const restore = await app.clipboard.save();
+  await app.clipboard.writeText('transcript');
+  await restore();
+  assert.deepEqual(app.events, ['write transcript', 'clear'], 'The Find pasteboard is never read or written back');
   assert.deepEqual(app.contents(), []);
 });
