@@ -7,7 +7,7 @@ type State = 'idle' | 'requesting' | 'recording' | 'processing' | 'message' | 'f
 
 export function App() {
   const api = window.einsager;
-  const [info, setInfo] = useState<DesktopInfo>({ edge: 'bottom', shortcut: 'Ctrl+Alt+Space', shortcutAvailable: true, pasteKey: 'Ctrl+V' });
+  const [info, setInfo] = useState<DesktopInfo>({ edge: 'bottom', shortcut: 'Ctrl+Alt+Space', shortcutAvailable: true, pasteKey: 'Ctrl+V', canPositionWindow: true });
   const [state, setState] = useState<State>('idle');
   const [message, setMessage] = useState('');
   const [hovered, setHovered] = useState(false);
@@ -49,7 +49,8 @@ export function App() {
     if ('error' in value) { change('failure', value.error, value.retryable); return; }
     if (!value.text.trim()) { feedback('No speech detected'); return; }
     setCanCopy(true);
-    feedback(value.copied === false ? 'Clipboard unavailable. Use Copy last to retry.' : `Copied. Press ${info.pasteKey} in your text field.`);
+    feedback(value.copied === false ? 'Clipboard unavailable. Use Copy last to retry.'
+      : value.pasteSent ? 'Paste shortcut sent. Text is also copied.' : `Copied. Press ${info.pasteKey} in your text field.`);
   }
   async function finish() {
     if (stateRef.current !== 'recording') return;
@@ -67,10 +68,10 @@ export function App() {
     if (['requesting', 'processing'].includes(stateRef.current)) return;
     if (!api) { feedback('Open the desktop app to record.'); return; }
     const id = ++generation.current;
-    await api.cancel();
-    if (id !== generation.current) return;
     change('requesting', 'Starting microphone…');
     try {
+      await api.begin();
+      if (id !== generation.current) return;
       const microphone = await MicrophoneRecording.start((level, seconds) => {
         setLevels(previous => [...previous.slice(1), level]);
         setSecondsLeft(seconds >= RECORDING_SECONDS - 60 ? Math.ceil(RECORDING_SECONDS - seconds) : undefined);
@@ -147,7 +148,8 @@ export function App() {
     </div>}
     <div className={`pill ${handle ? 'handle' : ''} ${state === 'processing' ? 'processing' : ''}`} role={state === 'idle' ? 'button' : 'group'}
       aria-label={state === 'idle' ? 'Start hands-free dictation' : state} tabIndex={0}
-      title={info.shortcutAvailable ? 'Click to dictate. Drag to dock. Right-click for options.' : 'Shortcut unavailable. Click to dictate. Right-click for options.'}
+      title={[(info.shortcutAvailable ? 'Click to dictate.' : 'Shortcut unavailable. Click to dictate.'),
+        info.canPositionWindow ? 'Drag to dock.' : '', 'Right-click for options.', info.desktopNotice].filter(Boolean).join(' ')}
       onMouseEnter={() => setHovered(true)} onMouseLeave={() => setHovered(false)}
       onKeyDown={event => { if (event.target === event.currentTarget && (event.key === 'Enter' || event.key === ' ')) { event.preventDefault(); void toggle(); } }}
       onPointerDown={event => {
@@ -160,13 +162,13 @@ export function App() {
         if (!start) return;
         const dx = event.screenX - start.x, dy = event.screenY - start.y;
         if (Math.hypot(dx, dy) > 4) start.moved = true;
-        if (start.moved) api?.drag(dx, dy, false);
+        if (start.moved && info.canPositionWindow) api?.drag(dx, dy, false);
       }}
       onPointerUp={event => {
         const start = gesture.current;
         gesture.current = undefined;
         if (!start) return;
-        if (start.moved) api?.drag(event.screenX - start.x, event.screenY - start.y, true);
+        if (start.moved) { if (info.canPositionWindow) api?.drag(event.screenX - start.x, event.screenY - start.y, true); }
         else if (stateRef.current === 'idle' || stateRef.current === 'message') void toggle();
       }}>
       {circles && <button className="circle cancel" aria-label="Cancel dictation" onClick={() => void cancel()}><svg viewBox="0 0 18 18"><path d="M12 6L6 12M6 6l6 6" /></svg></button>}

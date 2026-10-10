@@ -2,7 +2,8 @@
 
 The first portable layer uses Electron, React, and the existing Rust helper.
 It records mono audio, draws the approved pill, supports hands-free dictation,
-and copies the transcript for manual paste. Retry retains one temporary
+and copies the transcript. Linux X11 can also attempt automatic paste through
+its desktop adapter. Retry retains one temporary
 recording. Cancel, a new session, success, and quit remove that recording.
 
 ## Build and run
@@ -55,7 +56,9 @@ Retry, Copy last, the Codex folder, and Quit. Dock at top, bottom, left, or righ
 or drag the pill to an edge.
 
 After transcription, press **⌘V** on macOS or **Ctrl+V** on Windows/Linux in your
-editor. This layer does not send a paste to another app. A failed transcription
+editor. Linux X11 with `xdotool` can send the paste shortcut when the recording's
+original window still has focus; text remains copied for recovery. Other portable
+platforms use manual paste. See [Linux setup and limits](linux.md). A failed transcription
 offers Retry and retains only the current temporary recording. There is no
 transcript history or background recording.
 
@@ -65,10 +68,12 @@ partial file and disables Retry; fix the storage problem and start a new dictati
 
 Portable recording is 16 kHz, 16-bit mono WAV, capped at 10 minutes so it stays
 below the helper's 25 MiB upload limit. Native Mac recording retains the verified
-20-minute AAC path. Global hold/release, Fn double/triple taps, automatic paste,
-and equivalent input/permission behavior remain migration work. Wayland
-compositors can refuse global shortcuts or window placement; clicking the pill
-and manual paste remain the fallback. Microphone access requires OS permission.
+20-minute AAC path. Global hold/release, Fn double/triple taps, portable Mac/Windows
+automatic paste, and equivalent input/permission behavior remain migration work.
+On Wayland, shortcuts use Electron's portal integration when the desktop supports
+it. The compositor owns window placement, so docking and dragging are disabled;
+the pill still resizes for its controls and labels. Clicking the pill and manual
+paste remain available. Microphone access requires OS permission.
 
 ## Boundaries and choice
 
@@ -79,6 +84,12 @@ exposes only the typed operations in `src/shared/contract.ts`. The renderer has
 sandboxing and context isolation enabled, no Node access, and no external
 navigation. `src/main/platform.ts` holds the actual OS differences and is used
 by the host and packager. Paths in this paragraph are relative to `apps/desktop/`.
+
+`src/main/linux/desktop.ts` owns Linux session detection, optional `xdotool`,
+focus snapshots, and targeted X11 keyboard delivery. `src/main/delivery.ts` owns
+clipboard recovery, the recording's target, and cancellation across asynchronous
+clipboard/input operations. The renderer calls `begin()` before recording and
+receives only capability notices and delivery results, never window IDs.
 
 `src/main/transcription.ts` owns one temporary WAV and child process. Session
 generations reject completions after cancellation or a newer recording.
@@ -108,6 +119,8 @@ pnpm build
 pnpm test:desktop
 pnpm package
 pnpm test:packaged
+# Linux with xdotool installed, under Xvfb or a test desktop:
+xvfb-run -a pnpm test:linux
 ```
 
 The desktop smoke test uses a fake microphone and an empty Codex folder. It
@@ -119,8 +132,15 @@ the upload-size bound, docking, process cancellation, and retained-audio Retry.
 Filesystem fault tests verify partial-file cleanup and prevent Retry from
 launching the helper after a save failure. Smoke also checks that Copy preserves
 recovery and that nonretryable errors disable Retry.
-Tests with injected fixture helpers verify transcription delivery without
-reading real credentials. Mac and Windows live acceptance must run on those OSes.
+Linux unit tests cover missing tools, Wayland/Xwayland detection, focus and window
+owner changes, clipboard replacement/failure, and cancellation during pending
+focus/clipboard reads. The Linux runtime test sends targeted paste keys to a
+separate blank Electron editor, checks Unicode/newlines without Enter, and
+checks focus-change recovery. A second smoke run exercises Wayland policy on
+Xvfb, including resizing without placement requests; this is not a real Wayland
+compositor test. Tests with injected fixture helpers verify transcription delivery
+without reading real credentials. Physical Linux, Mac, and Windows acceptance
+must run in the target desktop sessions.
 
 Menu-highlight lag in the earlier native Mac app remains unresolved.
 

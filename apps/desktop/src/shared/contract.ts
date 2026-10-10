@@ -1,16 +1,19 @@
 export type DockEdge = 'bottom' | 'top' | 'left' | 'right';
 export type DesktopAction = 'toggle' | 'cancel' | 'retry' | 'copy';
-export type TranscriptResult = { text: string; copied?: boolean } | { error: string; retryable: boolean } | { cancelled: true };
+export type TranscriptResult = { text: string; copied?: boolean; pasteSent?: boolean } | { error: string; retryable: boolean } | { cancelled: true };
 
 export interface DesktopInfo {
   edge: DockEdge;
   shortcut: string;
   shortcutAvailable: boolean;
   pasteKey: string;
+  canPositionWindow: boolean;
+  desktopNotice?: string;
 }
 
 export interface DesktopBridge {
   info(): Promise<DesktopInfo>;
+  begin(): Promise<void>;
   transcribe(wav: ArrayBuffer): Promise<TranscriptResult>;
   retry(): Promise<TranscriptResult>;
   cancel(): Promise<void>;

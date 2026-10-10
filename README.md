@@ -15,7 +15,8 @@ platform ownership, runtime boundaries, and CPU build targets.
 
 The native Mac flow below remains available. The portable app uses Electron for
 recording and the pill, then calls the same Rust helper. It copies the transcript
-for manual paste. See [portable desktop setup and current limits](docs/cross-platform.md).
+and can attempt automatic paste on Linux X11 with `xdotool`. See
+[portable desktop setup](docs/cross-platform.md) and [Linux setup and limits](docs/linux.md).
 
 - A native Swift menu-bar app records your voice and shows a small floating bar
   with a live waveform.

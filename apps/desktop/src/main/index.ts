@@ -6,8 +6,12 @@ import type { DesktopAction, DockEdge, TranscriptResult } from '../shared/contra
 import { clampFrame, dockFrame, nearestEdge } from './placement';
 import { TranscriptionSession } from './transcription';
 import { platformFor } from './platform';
+import { TranscriptDelivery } from './delivery';
+import { LinuxDesktop } from './linux/desktop';
 
 const platform = platformFor(process.platform);
+const linux = process.platform === 'linux' ? new LinuxDesktop() : undefined;
+const delivery = new TranscriptDelivery(clipboard, linux ? signal => linux.captureTarget(signal) : undefined);
 app.commandLine.appendSwitch('enable-features', 'GlobalShortcutsPortal');
 const shortcut = 'Control+Alt+Space';
 const edges: DockEdge[] = ['bottom', 'top', 'left', 'right'];
@@ -16,7 +20,6 @@ let tray: Tray;
 let edge: DockEdge = 'bottom';
 let codexHome: string | undefined;
 let shortcutAvailable = false;
-let lastText = '';
 let transcription: TranscriptionSession;
 let dragOrigin: Electron.Rectangle | undefined;
 let pillHeight = 8;
@@ -28,6 +31,7 @@ const settingsFile = () => join(app.getPath('userData'), 'settings.json');
 
 function send(action: DesktopAction) { window.webContents.send('action', action); }
 function reposition() {
+  if (linux?.canPositionWindow === false) return;
   const display = screen.getDisplayMatching(window.getBounds());
   window.setBounds(dockFrame(window.getBounds(), display.workArea, edge, pillHeight));
 }
@@ -39,6 +43,7 @@ async function saveSettings() {
 async function chooseCodexHome() {
   const selection = await dialog.showOpenDialog({ title: 'Select your Codex folder', properties: ['openDirectory', 'showHiddenFiles'] });
   if (selection.canceled) return;
+  delivery.cancel();
   await transcription.cancel();
   send('cancel');
   codexHome = selection.filePaths[0];
@@ -58,9 +63,10 @@ function contextMenu() {
     { label: 'Start / finish dictation', accelerator: shortcut, click: () => send('toggle') },
     { label: 'Cancel dictation', click: () => send('cancel') },
     { label: 'Retry transcription', click: () => send('retry') },
-    { label: 'Copy last transcript', enabled: !!lastText, click: () => send('copy') },
+    { label: 'Copy last transcript', enabled: delivery.hasTranscript, click: () => send('copy') },
+    ...(linux ? [{ label: linux.notice, enabled: false }] : []),
     { type: 'separator' },
-    ...edges.map(value => ({ label: `Dock at ${value}`, type: 'radio' as const, checked: value === edge,
+    ...edges.map(value => ({ label: `Dock at ${value}`, type: 'radio' as const, checked: value === edge, enabled: linux?.canPositionWindow !== false,
       click: () => { edge = value; reposition(); window.webContents.send('edge', edge); void saveSettings(); } })),
     { type: 'separator' },
     { label: 'Select Codex folder…', click: () => { void chooseCodexHome(); } },
@@ -68,14 +74,10 @@ function contextMenu() {
   ]);
 }
 
-async function deliver(result: TranscriptResult) {
-  if ('text' in result && result.text.trim()) {
-    lastText = result.text;
-    tray.setContextMenu(contextMenu());
-    try { clipboard.writeText(lastText); }
-    catch { return { ...result, copied: false }; }
-  }
-  return result;
+async function deliver(result: TranscriptResult, revision: number) {
+  const delivered = await delivery.deliver(result, revision);
+  tray.setContextMenu(contextMenu());
+  return delivered;
 }
 
 function installIPC() {
@@ -85,19 +87,30 @@ function installIPC() {
   };
   ipcMain.handle('info', event => {
     trusted(event);
-    return { edge, shortcut: 'Ctrl+Alt+Space', shortcutAvailable, pasteKey: platform.pasteKey };
+    return { edge, shortcut: 'Ctrl+Alt+Space', shortcutAvailable, pasteKey: platform.pasteKey,
+      canPositionWindow: linux?.canPositionWindow !== false, desktopNotice: linux?.notice };
+  });
+  ipcMain.handle('begin', async event => {
+    trusted(event);
+    const preparation = delivery.begin();
+    await transcription.cancel();
+    await preparation;
   });
   ipcMain.handle('transcribe', async (event, audio: unknown) => {
     trusted(event);
     if (!(audio instanceof ArrayBuffer)) return { error: 'Invalid recording.', retryable: false };
-    return deliver(await transcription.transcribe(audio));
+    const revision = delivery.revision;
+    return deliver(await transcription.transcribe(audio), revision);
   });
-  ipcMain.handle('retry', async event => { trusted(event); return deliver(await transcription.retry()); });
-  ipcMain.handle('cancel', async event => { trusted(event); await transcription.cancel(); });
+  ipcMain.handle('retry', async event => {
+    trusted(event);
+    const revision = delivery.revision;
+    return deliver(await transcription.retry(), revision);
+  });
+  ipcMain.handle('cancel', async event => { trusted(event); delivery.cancel(); await transcription.cancel(); });
   ipcMain.handle('copy-last', event => {
     trusted(event);
-    if (!lastText) return false;
-    try { clipboard.writeText(lastText); return true; } catch { return false; }
+    return delivery.copyLast();
   });
   ipcMain.on('menu', event => { trusted(event); contextMenu().popup({ window }); });
   ipcMain.on('active', (event, value: unknown) => {
@@ -114,12 +127,18 @@ function installIPC() {
       width: Math.round(Math.min(420, Math.max(40, width))),
       height: Math.round(Math.min(180, Math.max(8, height))),
     };
+    if (linux?.canPositionWindow === false) {
+      // setSize clamps to a non-resizable Linux window's previous minimum size.
+      window.setContentSize(size.width, size.height);
+      return;
+    }
     const display = screen.getDisplayMatching(window.getBounds());
     // Apply size and position together; Linux may still report the previous size after setSize.
     window.setBounds(dockFrame(size, display.workArea, edge, pillHeight));
   });
   ipcMain.on('drag', (event, dx: unknown, dy: unknown, finished: unknown) => {
     trusted(event);
+    if (linux?.canPositionWindow === false) return;
     if (typeof dx !== 'number' || typeof dy !== 'number' || !Number.isFinite(dx + dy)) return;
     dragOrigin ??= window.getBounds();
     const display = screen.getDisplayNearestPoint(screen.getCursorScreenPoint());
@@ -144,6 +163,7 @@ async function start() {
     }
   } catch { /* First launch or invalid settings uses defaults. */ }
   createTranscription();
+  await linux?.initialize();
   app.dock?.hide();
   session.defaultSession.setPermissionRequestHandler((contents, permission, callback) => {
     callback(contents === window?.webContents && contents.getURL() === rendererURL && permission === 'media');
@@ -157,7 +177,7 @@ async function start() {
     webPreferences: { preload: join(__dirname, 'preload.cjs'), sandbox: true, contextIsolation: true, nodeIntegration: false,
       autoplayPolicy: 'no-user-gesture-required' },
   });
-  window.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
+  if (linux?.canPositionWindow !== false) window.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
   window.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
   window.webContents.on('will-navigate', event => event.preventDefault());
   window.on('close', event => { if (!quitting) event.preventDefault(); });
@@ -183,6 +203,7 @@ else {
     if (quitting) return;
     event.preventDefault();
     quitting = true;
+    delivery.cancel();
     globalShortcut.unregisterAll();
     void transcription?.cancel().finally(() => app.quit());
   });

@@ -8,7 +8,8 @@ app directory for a UI change, or the Rust crate for a login or upload change.
 | Directory | Language and runtime | Platforms | Owns |
 |---|---|---|---|
 | [`apps/macos/src/`](../apps/macos/src/) | Swift, AppKit, AVFoundation, Carbon | macOS | Native UI, recording, Fn/hold shortcuts, focus checks, clipboard, and paste |
-| [`apps/desktop/src/main/`](../apps/desktop/src/main/) | TypeScript, Electron main process, Node.js | Linux, macOS, Windows | Window, tray, shortcuts, settings, clipboard, trusted IPC, and helper process |
+| [`apps/desktop/src/main/`](../apps/desktop/src/main/) | TypeScript, Electron main process, Node.js | Linux, macOS, Windows | Window, tray, shortcuts, settings, clipboard delivery, trusted IPC, and helper process |
+| [`apps/desktop/src/main/linux/`](../apps/desktop/src/main/linux/) | TypeScript, Node.js, optional xdotool | Linux | X11/Wayland detection, desktop capabilities, focused window capture, targeted paste |
 | [`apps/desktop/src/renderer/`](../apps/desktop/src/renderer/) | TypeScript, React, Chromium browser APIs | Linux, macOS, Windows | Pill UI, visible session, microphone capture, and WAV encoding |
 | [`apps/desktop/src/preload.ts`](../apps/desktop/src/preload.ts) | TypeScript, sandboxed Electron preload | Linux, macOS, Windows | Narrow bridge between the renderer and main process |
 | [`apps/desktop/src/shared/contract.ts`](../apps/desktop/src/shared/contract.ts) | TypeScript types | Linux, macOS, Windows | Bridge operations, docking, and result types; no privileged runtime code |
@@ -32,6 +33,8 @@ flowchart LR
     helper -->|"JSON result"| native
     helper -->|"JSON result"| host
     host -->|"clipboard; manual paste"| editor["Text field"]
+    host -->|"recording target; cancellation"| linux["Linux desktop adapter"]
+    linux -->|"X11 targeted paste attempt"| editor
     native -->|"clipboard; safe paste attempt"| editor
 ```
 
@@ -62,6 +65,8 @@ small OS policy module so it bundles the filename the host will launch.
 | Portable docking coordinates | `apps/desktop/src/main/placement.ts` |
 | Portable temporary audio, helper cancellation, and Retry | `apps/desktop/src/main/transcription.ts` |
 | Portable OS differences | `apps/desktop/src/main/platform.ts` |
+| Linux capabilities and X11 paste | `apps/desktop/src/main/linux/desktop.ts` |
+| Portable clipboard recovery and target lifetime | `apps/desktop/src/main/delivery.ts` |
 | Login discovery, audio formats, upload, and CLI JSON | `crates/transcription/src/main.rs` |
 
 The current helper and desktop host are small enough to keep each related flow
@@ -79,12 +84,18 @@ The portable host and packager use `src/main/platform.ts` for these differences:
 | `win32` | Windows | `Ctrl+V` | `einsager-transcribe.exe` | No |
 
 Electron provides the other portable window, clipboard, shortcut, and permission
-APIs. The native app's Apple frameworks belong only in `apps/macos/`. The Rust
+APIs. Linux's desktop adapter detects X11 versus Wayland and optional `xdotool`;
+the host uses its capabilities to disable compositor-controlled positioning.
+TranscriptDelivery owns one recording's target, clipboard writes/recovery,
+and cancellation guards; Linux owns the focus checks and keyboard commands.
+The adapter never imports renderer or Electron code. See [Linux setup](linux.md).
+The native app's Apple frameworks belong only in `apps/macos/`. The Rust
 helper uses the OS home-directory API for login discovery. Only its Unix CLI
 fallback test overrides `HOME`; Windows fallback tests use injected paths.
 
 AppKit remains active during migration. The portable client supports hands-free
-recording and manual paste. Native hold/Fn gestures, safe insertion, and the
+recording and clipboard recovery, plus X11 paste attempts on Linux. Native
+hold/Fn gestures, exact-field focus checks, and the
 20-minute AAC path remain native Mac features. See [portable limits](cross-platform.md).
 
 ## CPU architectures and build outputs
@@ -117,6 +128,7 @@ The three-OS CI matrix verifies its runner architectures, not every OS/CPU pair.
 | Shared Rust helper | `cargo fmt --check`, `cargo test --locked -j 1`, `cargo clippy --locked -j 1 --all-targets -- -D warnings` |
 | Portable types and unit behavior | `pnpm check` |
 | Portable development and packaged runtime | After build/package: `pnpm test:desktop` and `pnpm test:packaged`; Linux can use `xvfb-run -a` |
+| Linux keyboard delivery and Wayland fallback policy | `xvfb-run -a pnpm test:linux`, with xdotool installed; a real compositor still needs acceptance |
 | Native Mac logic, panel, and icon | `zsh apps/macos/scripts/check.sh` on macOS |
 | Native Mac bundle | Build on macOS, then lint its plist and verify its code signature |
 

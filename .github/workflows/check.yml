@@ -35,11 +35,15 @@ jobs:
       - run: cargo clippy --locked -j 1 --all-targets -- -D warnings
       - run: pnpm build
       - run: pnpm package
+      - name: Linux input test dependency
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y xdotool
       - name: Desktop smoke test (Linux)
         if: runner.os == 'Linux'
         run: |
           xvfb-run -a pnpm test:desktop
           xvfb-run -a pnpm test:packaged
+          xvfb-run -a pnpm test:linux
       - name: Desktop smoke test (macOS and Windows)
         if: runner.os != 'Linux'
         run: |

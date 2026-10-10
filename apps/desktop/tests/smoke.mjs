@@ -7,11 +7,13 @@ import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 
 const packaged = process.argv.includes('--packaged');
+const waylandPolicy = process.argv.includes('--wayland-policy');
+if (waylandPolicy) assert.equal(process.platform, 'linux');
 const bundle = resolve(`release/einsager-${process.platform}-${process.arch}`);
 const executablePath = process.platform === 'darwin'
   ? join(bundle, 'einsager.app/Contents/MacOS/einsager')
   : join(bundle, process.platform === 'win32' ? 'einsager.exe' : 'einsager');
-const evidence = packaged ? 'packaged' : 'desktop';
+const evidence = waylandPolicy ? 'wayland-policy' : packaged ? 'packaged' : 'desktop';
 
 const directory = await mkdtemp(join(tmpdir(), 'einsager-smoke-'));
 const profile = join(directory, 'profile');
@@ -22,8 +24,9 @@ let application;
 try {
   application = await electron.launch({
     ...(packaged ? { executablePath } : {}),
-    args: [...(packaged ? [] : ['.']), `--user-data-dir=${profile}`, '--use-fake-device-for-media-stream', '--use-fake-ui-for-media-stream'],
-    env: { ...process.env, CODEX_HOME: codex },
+    args: [...(packaged ? [] : ['.']), `--user-data-dir=${profile}`, '--use-fake-device-for-media-stream', '--use-fake-ui-for-media-stream', ...(waylandPolicy ? ['--ozone-platform=x11'] : [])],
+    // This exercises the conservative Wayland policy on Xvfb, not a real compositor.
+    env: { ...process.env, CODEX_HOME: codex, ...(waylandPolicy ? { XDG_SESSION_TYPE: 'wayland', WAYLAND_DISPLAY: 'test-policy' } : {}) },
   });
   const page = await application.firstWindow();
   const errors = [];
@@ -68,6 +71,10 @@ try {
   await page.getByRole('button', { name: 'Start hands-free dictation' }).waitFor();
   const info = await page.evaluate(() => window.einsager.info());
   assert.equal(info.pasteKey, process.platform === 'darwin' ? '⌘V' : 'Ctrl+V');
+  if (waylandPolicy) {
+    assert.equal(info.canPositionWindow, false);
+    assert.match(info.desktopNotice, /Wayland/);
+  }
 
   // Force the Mac startup ordering on every OS, without relying on IPC timing.
   await application.evaluate(({ ipcMain }, info) => {
@@ -112,7 +119,23 @@ try {
 
   // Exercise renderer sizing, IPC placement, and side alignment together.
   const pill = page.locator('.pill');
-  for (const edge of ['left', 'right']) {
+  if (waylandPolicy) {
+    // Resizing must keep labels visible even when the compositor owns placement.
+    await expect.poll(async () => {
+      const surface = await page.locator('.surface').boundingBox();
+      const bounds = await application.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].getBounds());
+      return Math.max(Math.abs(bounds.width - Math.ceil(surface.width)), Math.abs(bounds.height - Math.ceil(surface.height)));
+    }).toBeLessThanOrEqual(1);
+    await application.evaluate(({ BrowserWindow }) => {
+      const window = BrowserWindow.getAllWindows()[0];
+      globalThis.testBoundsCalls = 0;
+      const original = window.setBounds.bind(window);
+      window.setBounds = (...args) => { globalThis.testBoundsCalls++; return original(...args); };
+    });
+    await page.evaluate(async () => { window.einsager.drag(100, 100, true); await window.einsager.info(); });
+    assert.equal(await application.evaluate(() => globalThis.testBoundsCalls), 0);
+  }
+  for (const edge of waylandPolicy ? [] : ['left', 'right']) {
     await pill.dispatchEvent('mouseout', { relatedTarget: null });
     await page.locator('.pill.handle').waitFor();
     const shift = await application.evaluate(({ BrowserWindow, screen }, edge) => {
@@ -148,7 +171,7 @@ try {
     await page.screenshot({ path: `.agents/artifacts/${evidence}-${edge}-hover.png`, omitBackground: true });
   }
   assert.deepEqual(errors, []);
-  console.log(`${evidence}: launch, recording, safe Copy/recovery, login error, Retry capability, delayed Mac info, cancellation, and side docking passed. No request sent.`);
+  console.log(`${evidence}: launch, recording, safe Copy/recovery, login error, Retry capability, delayed Mac info, cancellation, and ${waylandPolicy ? 'compositor-owned placement with working resize' : 'side docking'} passed. No request sent.`);
 } finally {
   await application?.close();
   await rm(directory, { recursive: true, force: true });

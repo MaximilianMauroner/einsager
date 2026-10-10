@@ -3,6 +3,7 @@ import type { DesktopAction, DesktopBridge, DockEdge } from './shared/contract';
 
 const bridge: DesktopBridge = {
   info: () => ipcRenderer.invoke('info'),
+  begin: () => ipcRenderer.invoke('begin'),
   transcribe: wav => ipcRenderer.invoke('transcribe', wav),
   retry: () => ipcRenderer.invoke('retry'),
   cancel: () => ipcRenderer.invoke('cancel'),
