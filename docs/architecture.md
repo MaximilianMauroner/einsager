@@ -11,7 +11,7 @@ app directory for a UI change, or the Rust crate for a login or upload change.
 | [`apps/desktop/src/main/`](../apps/desktop/src/main/) | TypeScript, Electron main process, Node.js | Linux, macOS, Windows | Window, tray, shortcuts, settings, clipboard delivery, trusted IPC, and helper process |
 | [`apps/desktop/src/main/linux/`](../apps/desktop/src/main/linux/) | TypeScript, Node.js, optional xdotool | Linux | X11/Wayland detection, desktop capabilities, focused window capture, targeted paste |
 | [`apps/desktop/src/renderer/`](../apps/desktop/src/renderer/) | TypeScript, React, Chromium browser APIs | Linux, macOS, Windows | Pill UI, visible session, microphone capture, and WAV encoding |
-| [`apps/desktop/src/preload.ts`](../apps/desktop/src/preload.ts) | TypeScript, sandboxed Electron preload | Linux, macOS, Windows | Narrow bridge between the renderer and main process |
+| [`apps/desktop/src/preload.ts`](../apps/desktop/src/preload.ts), [`panel-preload.ts`](../apps/desktop/src/panel-preload.ts) | TypeScript, sandboxed Electron preloads | Linux, macOS, Windows | Narrow bridges from the pill and the tray panel to the main process |
 | [`apps/desktop/src/shared/contract.ts`](../apps/desktop/src/shared/contract.ts) | TypeScript types | Linux, macOS, Windows | Bridge operations, docking, and result types; no privileged runtime code |
 | [`crates/transcription/`](../crates/transcription/) | Rust, native executable | Linux, macOS, Windows | Codex login discovery, audio validation, ChatGPT upload, and JSON output |
 | [`assets/icons/`](../assets/icons/) | PDF and PNG | Both apps | Native PDF icon and portable PNG tray icon |
@@ -62,11 +62,13 @@ small OS policy module so it bundles the filename the host will launch.
 | Portable pill and visible session | `apps/desktop/src/renderer/App.tsx` |
 | Portable microphone and WAV encoding | `apps/desktop/src/renderer/audio.ts` |
 | Portable window, tray, settings, and IPC | `apps/desktop/src/main/index.ts` |
+| Portable tray panel: history, settings, and session view | `apps/desktop/src/renderer/Panel.tsx`, window in `apps/desktop/src/main/panel.ts` |
+| Portable transcript history and stored settings | `apps/desktop/src/main/history.ts`, `apps/desktop/src/main/settings.ts` |
 | Portable docking coordinates | `apps/desktop/src/main/placement.ts` |
 | Portable temporary audio, helper cancellation, and Retry | `apps/desktop/src/main/transcription.ts` |
 | Portable OS differences | `apps/desktop/src/main/platform.ts` |
 | Linux capabilities and X11 paste | `apps/desktop/src/main/linux/desktop.ts` |
-| Portable clipboard recovery and target lifetime | `apps/desktop/src/main/delivery.ts` |
+| Portable clipboard modes, restore, recovery, and target lifetime | `apps/desktop/src/main/delivery.ts` |
 | Login discovery, audio formats, upload, and CLI JSON | `crates/transcription/src/main.rs` |
 
 The current helper and desktop host are small enough to keep each related flow

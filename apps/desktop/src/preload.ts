@@ -11,7 +11,7 @@ const bridge: DesktopBridge = {
   resize: (width, height, pillHeight) => ipcRenderer.send('resize', width, height, pillHeight),
   drag: (dx, dy, finished) => ipcRenderer.send('drag', dx, dy, finished),
   menu: () => ipcRenderer.send('menu'),
-  active: value => ipcRenderer.send('active', value),
+  status: value => ipcRenderer.send('status', value),
   onAction(callback) {
     const handler = (_event: Electron.IpcRendererEvent, action: DesktopAction) => callback(action);
     ipcRenderer.on('action', handler);

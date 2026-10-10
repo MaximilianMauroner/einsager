@@ -33,12 +33,14 @@ export class LinuxDesktop {
     catch { /* Recording and clipboard delivery do not require xdotool. */ }
   }
 
+  get canPaste() { return this.session === 'x11' && this.hasXdotool; }
+
   get notice() {
     if (this.session === 'wayland') return 'Wayland: paste by hand; your desktop controls pill placement.';
     if (this.session === 'headless') return 'No desktop display. Start einsager in your desktop session.';
     return this.hasXdotool
-      ? 'Automatic paste when the same X11 window keeps focus. Text also stays copied.'
-      : 'Install xdotool for automatic paste. Text is copied for manual paste.';
+      ? 'Automatic paste when the same X11 window keeps focus. Copy last recovers the text.'
+      : 'Install xdotool for automatic paste.';
   }
 
   async captureTarget(signal: AbortSignal): Promise<PasteTarget | undefined> {

@@ -79,7 +79,8 @@ pnpm start
 ```
 
 Run `pnpm package` to bundle a runnable app for the current OS and architecture.
-The first layer supports hands-free recording and clipboard recovery; global
+The first layer supports hands-free recording, clipboard recovery, and a tray
+panel with transcript history and settings; global
 Fn/hold-to-talk and automatic paste are still native Mac features. Portable WAV
 recording is capped at 10 minutes; native Mac AAC recording retains 20 minutes.
 

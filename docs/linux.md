@@ -16,8 +16,11 @@ sudo apt-get install xdotool
 ```
 
 Restart Einsager after installing it. No elevated permission is used by the app.
-Without this optional tool, dictation still records and copies the transcript.
-The tray and pill context menu explain whether automatic paste is available.
+Without this optional tool, dictation still records. The transcript is copied
+unless the clipboard setting is **Never**.
+The tray menu, the pill's context menu, and the tray panel's Settings explain
+whether automatic paste is available. On Linux the tray icon opens a menu;
+choose **History and settings…** for the tray panel.
 
 Before recording, the app captures the focused X11 window and its process ID.
 After transcription it writes the clipboard, checks that the same window/process
@@ -30,7 +33,10 @@ does not select a new application for insertion.
 X11 focus identifies a window, not an individual field inside a browser or editor.
 Changing fields inside the same window may not change this identity. Some clients
 reject targeted XSendEvent keyboard input. The app reports that the paste shortcut
-was sent, which does not confirm insertion; the transcript stays on the clipboard.
+was sent, which does not confirm insertion. With the default clipboard setting,
+the previous clipboard comes back 1 second after the paste is sent. If the text
+did not arrive, use Copy last or copy it from the tray panel's history. Choose
+**Always** in Settings to keep the transcript on the clipboard instead.
 Use your editor's paste shortcut if necessary, commonly Ctrl+V or Ctrl+Shift+V
 in a terminal. The app does not detect terminal-specific paste bindings.
 

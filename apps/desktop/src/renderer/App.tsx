@@ -1,9 +1,19 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
-import type { DesktopBridge, DesktopInfo, TranscriptResult } from '../shared/contract';
+import type { Delivery, DesktopBridge, DesktopInfo, SessionStatus, TranscriptResult } from '../shared/contract';
 import { MicrophoneRecording, RECORDING_SECONDS } from './audio';
 
 declare global { interface Window { einsager?: DesktopBridge } }
 type State = 'idle' | 'requesting' | 'recording' | 'processing' | 'message' | 'failure';
+
+function deliveryMessage(delivery: Delivery | undefined, pasteKey: string) {
+  switch (delivery) {
+    case 'clipboard-failed': return 'Clipboard unavailable. Use Copy last to retry.';
+    case 'pasted': return 'Paste shortcut sent.';
+    case 'pasted-and-copied': return 'Paste shortcut sent. Text is also copied.';
+    case 'not-copied': return 'Not copied, as set in Settings. Use Copy last.';
+    default: return `Copied. Press ${pasteKey} in your text field.`;
+  }
+}
 
 export function App() {
   const api = window.einsager;
@@ -30,7 +40,10 @@ export function App() {
     setCanRetry(retryAllowed);
     setState(next);
     setMessage(text);
-    api?.active(['requesting', 'recording', 'processing', 'failure'].includes(next));
+    // A transient message is idle for everyone else: the session is over.
+    const status: SessionStatus = next === 'failure' ? { state: 'failure', message: text, retryable: retryAllowed }
+      : { state: next === 'message' ? 'idle' : next };
+    api?.status(status);
   }
   function feedback(text: string) {
     change('message', text);
@@ -49,8 +62,7 @@ export function App() {
     if ('error' in value) { change('failure', value.error, value.retryable); return; }
     if (!value.text.trim()) { feedback('No speech detected'); return; }
     setCanCopy(true);
-    feedback(value.copied === false ? 'Clipboard unavailable. Use Copy last to retry.'
-      : value.pasteSent ? 'Paste shortcut sent. Text is also copied.' : `Copied. Press ${info.pasteKey} in your text field.`);
+    feedback(deliveryMessage(value.delivery, info.pasteKey));
   }
   async function finish() {
     if (stateRef.current !== 'recording') return;

@@ -1,7 +1,11 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import { setTimeout as wait } from 'node:timers/promises';
 import { TranscriptDelivery } from '../src/main/delivery.ts';
 import { LinuxDesktop, linuxSession } from '../src/main/linux/desktop.ts';
+
+/** Clipboard fakes for 'always' deliveries, which never save the old contents. */
+const unused = () => () => {};
 
 async function fixture(environment: NodeJS.ProcessEnv = { DISPLAY: ':fixture' }) {
   let focus = '42';
@@ -15,8 +19,11 @@ async function fixture(environment: NodeJS.ProcessEnv = { DISPLAY: ':fixture' })
     return '';
   });
   await desktop.initialize();
-  const delivery = new TranscriptDelivery({ writeText(value) { text = value; }, readText() { return text; } }, signal => desktop.captureTarget(signal));
-  return { delivery, desktop, keys, clipboard: () => text,
+  const delivery = new TranscriptDelivery({
+    writeText(value) { text = value; }, readText() { return text; },
+    save() { const saved = text; return () => { text = saved; }; },
+  }, signal => desktop.captureTarget(signal), 0);
+  return { delivery, desktop, keys, clipboard: () => text, copy(value: string) { text = value; },
     focus(value: string) { focus = value; }, owner(value: string) { owner = value; } };
 }
 
@@ -31,7 +38,7 @@ test('X11 paste targets the original focused window and keeps Unicode recovery t
   const app = await fixture();
   await app.delivery.begin();
   const text = 'Grüße from Linux';
-  assert.deepEqual(await app.delivery.deliver({ text }, app.delivery.revision), { text, pasteSent: true });
+  assert.deepEqual(await app.delivery.deliver({ text }, app.delivery.revision, 'always'), { text, delivery: 'pasted-and-copied' });
   assert.equal(app.clipboard(), text);
   assert.equal(app.keys.length, 1);
   assert.equal(app.keys[0][app.keys[0].indexOf('--window') + 1], '42');
@@ -43,7 +50,7 @@ test('a focus change copies the transcript without sending keys or forcing focus
   const app = await fixture();
   await app.delivery.begin();
   app.focus('77');
-  assert.deepEqual(await app.delivery.deliver({ text: 'kept' }, app.delivery.revision), { text: 'kept', pasteSent: false });
+  assert.deepEqual(await app.delivery.deliver({ text: 'kept' }, app.delivery.revision, 'always'), { text: 'kept', delivery: 'copied' });
   assert.equal(app.clipboard(), 'kept');
   assert.deepEqual(app.keys, []);
 });
@@ -53,7 +60,7 @@ test('own windows and unknown window owners do not receive automatic paste', asy
     const app = await fixture();
     app.owner(owner);
     await app.delivery.begin();
-    assert.equal('text' in await app.delivery.deliver({ text: 'manual' }, app.delivery.revision), true);
+    assert.equal('text' in await app.delivery.deliver({ text: 'manual' }, app.delivery.revision, 'always'), true);
     assert.equal(app.clipboard(), 'manual');
     assert.deepEqual(app.keys, []);
   }
@@ -63,7 +70,7 @@ test('a reused window ID with a different owner does not receive automatic paste
   const app = await fixture();
   await app.delivery.begin();
   app.owner(String(process.pid + 2));
-  assert.deepEqual(await app.delivery.deliver({ text: 'manual' }, app.delivery.revision), { text: 'manual', pasteSent: false });
+  assert.deepEqual(await app.delivery.deliver({ text: 'manual' }, app.delivery.revision, 'always'), { text: 'manual', delivery: 'copied' });
   assert.deepEqual(app.keys, []);
 });
 
@@ -71,9 +78,9 @@ test('Wayland disables placement and never runs X11 commands', async () => {
   let commands = 0;
   const desktop = new LinuxDesktop({ DISPLAY: ':0', WAYLAND_DISPLAY: 'wayland-0' }, async () => { commands++; return ''; });
   await desktop.initialize();
-  const delivery = new TranscriptDelivery({ writeText() {}, readText() { return 'manual'; } }, signal => desktop.captureTarget(signal));
+  const delivery = new TranscriptDelivery({ save: unused, writeText() {}, readText() { return 'manual'; } }, signal => desktop.captureTarget(signal));
   await delivery.begin();
-  assert.deepEqual(await delivery.deliver({ text: 'manual' }, delivery.revision), { text: 'manual', pasteSent: false });
+  assert.deepEqual(await delivery.deliver({ text: 'manual' }, delivery.revision, 'always'), { text: 'manual', delivery: 'copied' });
   assert.equal(desktop.canPositionWindow, false);
   assert.equal(commands, 0);
 });
@@ -82,9 +89,9 @@ test('missing xdotool keeps recording startup and clipboard delivery usable', as
   const desktop = new LinuxDesktop({ DISPLAY: ':0' }, async () => { throw new Error('ENOENT'); });
   await desktop.initialize();
   let text = '';
-  const delivery = new TranscriptDelivery({ writeText(value) { text = value; }, readText() { return text; } }, signal => desktop.captureTarget(signal));
+  const delivery = new TranscriptDelivery({ save: unused, writeText(value) { text = value; }, readText() { return text; } }, signal => desktop.captureTarget(signal));
   await delivery.begin();
-  assert.deepEqual(await delivery.deliver({ text: 'manual' }, delivery.revision), { text: 'manual', pasteSent: false });
+  assert.deepEqual(await delivery.deliver({ text: 'manual' }, delivery.revision, 'always'), { text: 'manual', delivery: 'copied' });
   assert.equal(text, 'manual');
   assert.match(desktop.notice, /Install xdotool/);
 });
@@ -94,11 +101,11 @@ test('cancellation and a newer recording reject old clipboard and paste delivery
   await app.delivery.begin();
   const cancelled = app.delivery.revision;
   app.delivery.cancel();
-  assert.deepEqual(await app.delivery.deliver({ text: 'cancelled' }, cancelled), { cancelled: true });
+  assert.deepEqual(await app.delivery.deliver({ text: 'cancelled' }, cancelled, 'always'), { cancelled: true });
   await app.delivery.begin();
   const replaced = app.delivery.revision;
   await app.delivery.begin();
-  assert.deepEqual(await app.delivery.deliver({ text: 'old' }, replaced), { cancelled: true });
+  assert.deepEqual(await app.delivery.deliver({ text: 'old' }, replaced, 'always'), { cancelled: true });
   assert.equal(app.clipboard(), '');
   assert.deepEqual(app.keys, []);
 });
@@ -108,7 +115,7 @@ test('a delayed target capture cannot overwrite a newer recording target', async
   let captures = 0;
   const sent: string[] = [];
   let text = '';
-  const delivery = new TranscriptDelivery({ writeText(value) { text = value; }, readText() { return text; } }, async () => {
+  const delivery = new TranscriptDelivery({ save: unused, writeText(value) { text = value; }, readText() { return text; } }, async () => {
     if (++captures === 1) return new Promise(resolve => { complete = resolve; });
     return async () => { sent.push('new'); return true; };
   });
@@ -116,7 +123,7 @@ test('a delayed target capture cannot overwrite a newer recording target', async
   await delivery.begin();
   complete(async () => { sent.push('old'); return true; });
   await old;
-  assert.deepEqual(await delivery.deliver({ text: 'current transcript' }, delivery.revision), { text: 'current transcript', pasteSent: true });
+  assert.deepEqual(await delivery.deliver({ text: 'current transcript' }, delivery.revision, 'always'), { text: 'current transcript', delivery: 'pasted-and-copied' });
   assert.deepEqual(sent, ['new']);
 });
 
@@ -140,10 +147,10 @@ test('cancelling during the focus check aborts paste delivery', async () => {
   });
   await desktop.initialize();
   let text = '';
-  const delivery = new TranscriptDelivery({ writeText(value) { text = value; }, readText() { return text; } }, signal => desktop.captureTarget(signal));
+  const delivery = new TranscriptDelivery({ save: unused, writeText(value) { text = value; }, readText() { return text; } }, signal => desktop.captureTarget(signal));
   await delivery.begin();
   captured = true;
-  const pending = delivery.deliver({ text: 'copied before cancellation' }, delivery.revision);
+  const pending = delivery.deliver({ text: 'copied before cancellation' }, delivery.revision, 'always');
   await checking;
   delivery.cancel();
   release();
@@ -165,10 +172,10 @@ test('clipboard replacement during the focus check prevents paste and preserves 
     return '';
   });
   await desktop.initialize();
-  const delivery = new TranscriptDelivery({ writeText(value) { text = value; }, readText() { return text; } }, signal => desktop.captureTarget(signal));
+  const delivery = new TranscriptDelivery({ save: unused, writeText(value) { text = value; }, readText() { return text; } }, signal => desktop.captureTarget(signal));
   await delivery.begin();
   readingForPaste = true;
-  assert.deepEqual(await delivery.deliver({ text: 'transcript' }, delivery.revision), { text: 'transcript', pasteSent: false });
+  assert.deepEqual(await delivery.deliver({ text: 'transcript' }, delivery.revision, 'always'), { text: 'transcript', delivery: 'copied' });
   assert.equal(text, 'user copied something else');
   assert.equal(keys, 0);
   assert.equal(await delivery.copyLast(), true);
@@ -176,13 +183,13 @@ test('clipboard replacement during the focus check prevents paste and preserves 
 });
 
 test('clipboard and input-command failures retain transcript recovery', async () => {
-  const delivery = new TranscriptDelivery({ async writeText() { throw new Error('clipboard unavailable'); }, async readText() { return ''; } });
+  const delivery = new TranscriptDelivery({ save: unused, async writeText() { throw new Error('clipboard unavailable'); }, async readText() { return ''; } });
   await delivery.begin();
-  assert.deepEqual(await delivery.deliver({ text: 'recover me' }, delivery.revision), { text: 'recover me', copied: false });
+  assert.deepEqual(await delivery.deliver({ text: 'recover me' }, delivery.revision, 'always'), { text: 'recover me', delivery: 'clipboard-failed' });
   assert.equal(delivery.hasTranscript, true);
-  const pasteFailure = new TranscriptDelivery({ writeText() {}, readText() { return 'copied'; } }, async () => async () => { throw new Error('input failed'); });
+  const pasteFailure = new TranscriptDelivery({ save: unused, writeText() {}, readText() { return 'copied'; } }, async () => async () => { throw new Error('input failed'); });
   await pasteFailure.begin();
-  assert.deepEqual(await pasteFailure.deliver({ text: 'copied' }, pasteFailure.revision), { text: 'copied', pasteSent: false });
+  assert.deepEqual(await pasteFailure.deliver({ text: 'copied' }, pasteFailure.revision, 'always'), { text: 'copied', delivery: 'copied' });
   assert.equal(await pasteFailure.copyLast(), true);
 });
 
@@ -192,14 +199,131 @@ test('cancellation during asynchronous clipboard reads prevents key delivery', a
   const reading = new Promise<void>(resolve => { entered = resolve; });
   let keys = 0;
   const delivery = new TranscriptDelivery({
+    save: unused,
     async writeText() {},
     readText() { entered(); return new Promise<string>(resolve => { release = resolve; }); },
   }, async () => async ready => { if (await ready()) { keys++; return true; } return false; });
   await delivery.begin();
-  const pending = delivery.deliver({ text: 'transcript' }, delivery.revision);
+  const pending = delivery.deliver({ text: 'transcript' }, delivery.revision, 'always');
   await reading;
   delivery.cancel();
   release('transcript');
   assert.deepEqual(await pending, { cancelled: true });
   assert.equal(keys, 0);
+});
+
+test('if paste fails: a sent paste gives the previous clipboard back after the target reads it', async () => {
+  const app = await fixture();
+  app.copy('previous clipboard');
+  await app.delivery.begin();
+  assert.deepEqual(await app.delivery.deliver({ text: 'pasted' }, app.delivery.revision, 'if-paste-fails'), { text: 'pasted', delivery: 'pasted' });
+  assert.equal(app.clipboard(), 'pasted', 'The target still reads the transcript right after the keys');
+  await wait(5);
+  assert.equal(app.clipboard(), 'previous clipboard');
+  assert.equal(app.keys.length, 1);
+  assert.equal(await app.delivery.copyLast(), true, 'Copy last still recovers the transcript');
+  assert.equal(app.clipboard(), 'pasted');
+});
+
+test('if paste fails: the transcript stays copied when focus moved', async () => {
+  const app = await fixture();
+  app.copy('previous clipboard');
+  await app.delivery.begin();
+  app.focus('77');
+  assert.deepEqual(await app.delivery.deliver({ text: 'kept' }, app.delivery.revision, 'if-paste-fails'), { text: 'kept', delivery: 'copied' });
+  await wait(5);
+  assert.equal(app.clipboard(), 'kept');
+  assert.deepEqual(app.keys, []);
+});
+
+test('restoring never overwrites something the user copied after the paste', async () => {
+  const app = await fixture();
+  app.copy('previous clipboard');
+  await app.delivery.begin();
+  await app.delivery.deliver({ text: 'pasted' }, app.delivery.revision, 'if-paste-fails');
+  app.copy('copied after the paste');
+  await wait(5);
+  assert.equal(app.clipboard(), 'copied after the paste');
+});
+
+test('without a paste target, if paste fails copies without reading the old clipboard', async () => {
+  let text = 'previous clipboard';
+  const delivery = new TranscriptDelivery({
+    writeText(value) { text = value; }, readText() { return text; },
+    save() { throw new Error('Saving is wasted work when no paste can follow'); },
+  });
+  await delivery.begin();
+  assert.deepEqual(await delivery.deliver({ text: 'copied' }, delivery.revision, 'if-paste-fails'), { text: 'copied', delivery: 'copied' });
+  assert.equal(text, 'copied');
+});
+
+test('never: without a paste target the clipboard is untouched and the text stays recoverable', async () => {
+  let text = 'previous clipboard';
+  const delivery = new TranscriptDelivery({ writeText(value) { text = value; }, readText() { return text; }, save: unused });
+  await delivery.begin();
+  assert.deepEqual(await delivery.deliver({ text: 'held' }, delivery.revision, 'never'), { text: 'held', delivery: 'not-copied' });
+  assert.equal(text, 'previous clipboard');
+  assert.equal(await delivery.copyLast(), true);
+  assert.equal(text, 'held');
+});
+
+test('never: a paste borrows the clipboard, and a failed paste gives it back at once', async () => {
+  const pasted = await fixture();
+  pasted.copy('previous clipboard');
+  await pasted.delivery.begin();
+  assert.deepEqual(await pasted.delivery.deliver({ text: 'pasted' }, pasted.delivery.revision, 'never'), { text: 'pasted', delivery: 'pasted' });
+  await wait(5);
+  assert.equal(pasted.clipboard(), 'previous clipboard');
+  const moved = await fixture();
+  moved.copy('previous clipboard');
+  await moved.delivery.begin();
+  moved.focus('77');
+  assert.deepEqual(await moved.delivery.deliver({ text: 'held' }, moved.delivery.revision, 'never'), { text: 'held', delivery: 'not-copied' });
+  assert.equal(moved.clipboard(), 'previous clipboard');
+  assert.deepEqual(moved.keys, []);
+});
+
+test('a clipboard that cannot be saved keeps the transcript copied instead of losing it', async () => {
+  let text = 'previous clipboard';
+  const delivery = new TranscriptDelivery({
+    writeText(value) { text = value; }, readText() { return text; },
+    save() { throw new Error('unreadable format'); },
+  }, async () => async () => true, 0);
+  await delivery.begin();
+  assert.deepEqual(await delivery.deliver({ text: 'pasted' }, delivery.revision, 'if-paste-fails'), { text: 'pasted', delivery: 'pasted-and-copied' });
+  await wait(5);
+  assert.equal(text, 'pasted');
+});
+
+test('a copy the user asks for during the restore delay is kept', async () => {
+  const app = await fixture();
+  app.copy('previous clipboard');
+  await app.delivery.begin();
+  await app.delivery.deliver({ text: 'pasted' }, app.delivery.revision, 'if-paste-fails');
+  assert.equal(await app.delivery.copyLast(), true);
+  await wait(5);
+  assert.equal(app.clipboard(), 'pasted');
+});
+
+test('a delivery cancelled after its paste still gives the clipboard back', async () => {
+  let text = 'previous clipboard';
+  const delivery: TranscriptDelivery = new TranscriptDelivery({
+    writeText(value) { text = value; }, readText() { return text; },
+    save() { const saved = text; return () => { text = saved; }; },
+  }, async () => async () => { delivery.cancel(); return true; }, 0);
+  await delivery.begin();
+  assert.deepEqual(await delivery.deliver({ text: 'pasted' }, delivery.revision, 'if-paste-fails'), { cancelled: true });
+  await wait(5);
+  assert.equal(text, 'previous clipboard');
+});
+
+test('clearing history also clears Copy last', async () => {
+  const delivery = new TranscriptDelivery({ writeText() {}, readText() { return ''; }, save: unused });
+  await delivery.begin();
+  await delivery.deliver({ text: 'private' }, delivery.revision, 'always');
+  delivery.forget('something else');
+  assert.equal(delivery.hasTranscript, true, 'Deleting another entry keeps Copy last');
+  delivery.forget();
+  assert.equal(delivery.hasTranscript, false);
+  assert.equal(await delivery.copyLast(), false);
 });

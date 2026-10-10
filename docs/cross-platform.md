@@ -35,10 +35,12 @@ The Rust helper finds the file-based ChatGPT login at:
 - `~/.codex/auth.json` on macOS and Linux.
 - The OS user-profile folder on Windows, normally `%USERPROFILE%\.codex\auth.json`.
 
-Use **Select Codex folder…** in the tray or pill context menu for a custom
-location, including when the desktop launcher does not inherit your shell
-environment. The app stores only that folder path and the docking edge.
-It does not locate a Codex executable, copy the login, or change Codex settings.
+Use **Codex login folder** in the tray panel's Settings for a custom location,
+including when the desktop launcher does not inherit your shell environment.
+The app stores that folder path and its settings in `settings.json`, and
+transcript history in `history.json`, in its user-data folder with owner-only
+permissions. It does not locate a Codex executable, copy the login, or change
+Codex settings.
 Only the helper reads credentials at runtime; no tokens reach the renderer.
 
 [Codex authentication documentation](https://learn.chatgpt.com/docs/auth#credential-storage)
@@ -51,16 +53,42 @@ Audio still goes to ChatGPT's internal transcription endpoint, not a local model
 
 Click the pill or press **Ctrl+Alt+Space** to start or finish hands-free
 recording. Click the check to finish; the cross cancels. Escape is registered
-only during a session. Right-click the pill or use the tray menu for docking,
-Retry, Copy last, the Codex folder, and Quit. Dock at top, bottom, left, or right,
-or drag the pill to an edge.
+only during a session. While the tray panel has focus, Escape closes its search,
+its Settings, or the panel instead. Dock at top, bottom, left, or right in
+Settings, or drag the pill to an edge.
+
+Click the tray icon to open the tray panel. It shows past transcripts, newest at
+the bottom, with Copy, Delete, and search. A recording in progress or a failed
+one appears at the end, with Retry and Discard. The sliders button turns the
+panel to Settings: clipboard behavior, transcript history, docking, the Codex
+folder, Clear history, and Quit. Right-click the tray icon or the pill for a
+short menu: Start/finish, Cancel, Retry, Copy last, History and settings, and
+Quit. On Linux, the tray icon opens this menu, because many trays send no clicks.
 
 After transcription, press **⌘V** on macOS or **Ctrl+V** on Windows/Linux in your
 editor. Linux X11 with `xdotool` can send the paste shortcut when the recording's
-original window still has focus; text remains copied for recovery. Other portable
-platforms use manual paste. See [Linux setup and limits](linux.md). A failed transcription
-offers Retry and retains only the current temporary recording. There is no
-transcript history or background recording.
+original window still has focus. Other portable platforms use manual paste. See
+[Linux setup and limits](linux.md). A failed transcription offers Retry and
+retains only the current temporary recording. There is no background recording.
+
+**Clipboard after dictation** decides what stays on the clipboard:
+
+- **If paste fails** (default): after a sent paste, the previous clipboard comes
+  back 1 second later, unless you copy something meanwhile, including with Copy
+  last. Otherwise the transcript stays copied.
+- **Always**: the transcript stays on the clipboard.
+- **Never**: the transcript is copied only for a paste. If the paste cannot be
+  sent, the previous clipboard comes back at once.
+
+Restoring uses every type that Electron's clipboard reports. If the previous
+contents cannot be read, the transcript stays copied. On macOS and Windows the
+portable app cannot paste yet, so **If paste fails** keeps the transcript copied
+and **Never** leaves the clipboard unchanged. Copy last and the panel's history
+work in every mode.
+
+Transcript history keeps the text, time, length, and a coarse loudness shape of
+the newest 500 transcripts. It never keeps audio. Turn it off or clear it in
+Settings. Clearing history, or deleting the newest entry, also clears Copy last.
 
 Copy last can copy an earlier transcript while a failed recording stays available
 for Retry. A failure to create or write the temporary recording discards any
@@ -84,6 +112,11 @@ exposes only the typed operations in `src/shared/contract.ts`. The renderer has
 sandboxing and context isolation enabled, no Node access, and no external
 navigation. `src/main/platform.ts` holds the actual OS differences and is used
 by the host and packager. Paths in this paragraph are relative to `apps/desktop/`.
+
+`src/main/panel.ts` owns the tray panel window and its placement. Its page is
+`src/renderer/Panel.tsx`, behind the separate bridge in `src/panel-preload.ts`.
+`src/main/history.ts` owns the history file and loudness shapes, and
+`src/main/settings.ts` validates stored and panel-supplied settings.
 
 `src/main/linux/desktop.ts` owns Linux session detection, optional `xdotool`,
 focus snapshots, and targeted X11 keyboard delivery. `src/main/delivery.ts` owns
@@ -127,8 +160,11 @@ The desktop smoke test uses a fake microphone and an empty Codex folder. It
 checks development and packaged launch, recording, the helper's missing-login
 error, Retry, cancel, safe tray Copy, a delayed Mac settings response, and side
 docking through renderer sizing and IPC
-without a real login or network transcription. Unit tests verify PCM/WAV output,
-the upload-size bound, docking, process cancellation, and retained-audio Retry.
+without a real login or network transcription. It also drives the tray panel:
+failure with Retry, the empty history, saved settings, and starting dictation
+from the panel. Unit tests verify PCM/WAV output, the upload-size bound, docking,
+panel placement, process cancellation, retained-audio Retry, each clipboard mode
+and its restore guard, history storage and limits, and settings validation.
 Filesystem fault tests verify partial-file cleanup and prevent Retry from
 launching the helper after a save failure. Smoke also checks that Copy preserves
 recovery and that nonretryable errors disable Retry.
