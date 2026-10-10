@@ -20,7 +20,6 @@ const platform = platformFor(process.platform);
 const linux = process.platform === 'linux' ? new LinuxDesktop() : undefined;
 const delivery = new TranscriptDelivery(systemClipboard(clipboard, ClipboardItem), linux ? signal => linux.captureTarget(signal) : undefined);
 app.commandLine.appendSwitch('enable-features', 'GlobalShortcutsPortal');
-const shortcut = 'Control+Alt+Space';
 /** Lets focus return to the editor before the pill captures or checks the paste target. */
 const PANEL_FOCUS_RETURN_MS = 150;
 let window: BrowserWindow;
@@ -32,6 +31,9 @@ let history: TranscriptHistory;
 let settingsFile: PrivateFile;
 let recording: Recording = { seconds: 0, voiceprint: [] };
 let shortcutAvailable = false;
+/** The Electron shortcut registered now, which can differ from settings while a change is applied. */
+let registeredShortcut: string | undefined;
+let recordingShortcut = false;
 let keyboard: MacKeyboard | undefined;
 let keyboardState: KeyboardState | undefined;
 /** The pill has a session or result to show, so it appears even when hidden while idle. */
@@ -80,17 +82,26 @@ function createTranscription() {
     { ...process.env, ...(settings.codexHome ? { CODEX_HOME: settings.codexHome } : {}) });
 }
 
-/** The macOS helper handles Fn and custom shortcuts once trusted; until then Electron's shortcut is the fallback. */
+/**
+ * The macOS helper handles Fn and custom shortcuts once trusted; until then Electron's shortcut is the fallback.
+ * The panel's shortcut recorder releases it, so pressing it records instead of starting dictation.
+ */
 function applyShortcuts() {
-  globalShortcut.unregister(shortcut);
-  shortcutAvailable = keyboardState?.trusted === true || globalShortcut.register(shortcut, () => send('toggle'));
+  if (registeredShortcut) globalShortcut.unregister(registeredShortcut);
+  registeredShortcut = undefined;
+  const native = keyboardState?.trusted === true;
+  if (!native && !recordingShortcut && globalShortcut.register(settings.shortcut, () => send('toggle'))) {
+    registeredShortcut = settings.shortcut;
+  }
+  // A recording keeps the earlier result, so the released shortcut does not show as taken.
+  if (!recordingShortcut) shortcutAvailable = native || registeredShortcut !== undefined;
   pushInfo();
   publish();
 }
 
 function info(): DesktopInfo {
   const native = keyboardState?.trusted ? keyboardState : undefined;
-  return { edge: settings.edge, shortcut: native?.handsFree ?? 'Ctrl+Alt+Space', holdKey: native?.hold, shortcutAvailable,
+  return { edge: settings.edge, shortcut: native?.handsFree ?? settings.shortcut, holdKey: native?.hold, shortcutAvailable,
     pasteKey: platform.pasteKey, canPositionWindow: linux?.canPositionWindow !== false, desktopNotice: linux?.notice };
 }
 
@@ -111,7 +122,7 @@ function panelState(): PanelState {
   const { codexHome: _, ...editable } = settings;
   return {
     status, history: [...history.entries], settings: editable, codexFolder: codexFolder(),
-    shortcut: 'Ctrl+Alt+Space', shortcutAvailable, canPaste: linux?.canPaste ?? false,
+    shortcutAvailable, canPaste: linux?.canPaste ?? false,
     canPositionWindow: linux?.canPositionWindow !== false, desktopNotice: linux?.notice, keyboard: keyboardState,
   };
 }
@@ -132,7 +143,7 @@ function updateEscape() {
 
 function actionMenu() {
   return Menu.buildFromTemplate([
-    { label: 'Start / finish dictation', accelerator: shortcut, click: () => send('toggle') },
+    { label: 'Start / finish dictation', accelerator: settings.shortcut, click: () => send('toggle') },
     { label: 'Cancel dictation', enabled: status.state !== 'idle', click: () => send('cancel') },
     { label: 'Retry transcription', enabled: status.state === 'failure' && status.retryable, click: () => send('retry') },
     { label: 'Copy last transcript', enabled: delivery.hasTranscript, click: () => send('copy') },
@@ -279,8 +290,10 @@ function installIPC() {
     fromPanel(event);
     const next = mergeSettings(settings, value);
     const edgeChanged = next.edge !== settings.edge;
+    const shortcutChanged = next.shortcut !== settings.shortcut;
     settings = next;
     if (edgeChanged) setEdge(next.edge);
+    if (shortcutChanged) applyShortcuts();
     updatePill();
     await saveSettings();
     publish();
@@ -293,6 +306,12 @@ function installIPC() {
     if (command === 'capture' && 'target' in value && (value.target === 'hold' || value.target === 'handsFree')) {
       keyboard?.send({ command, target: value.target });
     }
+  });
+  ipcMain.on('panel:record-shortcut', (event, active: unknown) => {
+    fromPanel(event);
+    if (typeof active !== 'boolean' || active === recordingShortcut) return;
+    recordingShortcut = active;
+    applyShortcuts();
   });
   ipcMain.handle('panel:codex', async event => { fromPanel(event); await chooseCodexHome(); });
   ipcMain.on('panel:resize', (event, height: unknown) => {
@@ -332,7 +351,10 @@ async function start() {
   panel.window.on('focus', updateEscape);
   panel.window.on('blur', updateEscape);
   // A shortcut recording ends with the panel, so keys never stay captured.
-  panel.window.on('hide', () => { if (keyboardState?.capturing) keyboard?.send({ command: 'stopCapture' }); });
+  panel.window.on('hide', () => {
+    if (keyboardState?.capturing) keyboard?.send({ command: 'stopCapture' });
+    if (recordingShortcut) { recordingShortcut = false; applyShortcuts(); }
+  });
   // The 44 px asset is drawn for 2x screens. At 1x it would be twice the menu bar's height.
   const icon = nativeImage.createFromBuffer(await readFile(join(__dirname, 'tray.png')), { scaleFactor: 2 });
   icon.setTemplateImage(platform.templateTrayIcon);

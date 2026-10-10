@@ -47,7 +47,8 @@ independent of OpenAI and Wispr.
 - Clipboard behavior is a setting: always keep the transcript, keep it only if
   paste fails (default), or never. Where the app cannot paste, "only if paste
   fails" keeps the transcript on the clipboard.
-- The shortcut is fixed at Ctrl+Alt+Space in the portable app.
+- The portable app's shortcut defaults to Ctrl+Alt+Space and can be changed in
+  Settings. On macOS, Fn shortcuts replace it once Accessibility is allowed.
 
 ## Brand Commitments
 

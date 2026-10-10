@@ -51,6 +51,8 @@ export interface Settings {
   keepHistory: boolean;
   /** Keeps the idle pill on screen. When false, it appears only for a session or a result. */
   showPill: boolean;
+  /** Electron's global shortcut for hands-free dictation, such as "Ctrl+Alt+Space". */
+  shortcut: string;
   /** Custom Codex folder; the helper's default lookup applies when absent. */
   codexHome?: string;
 }
@@ -75,7 +77,7 @@ export interface PanelState {
   settings: PanelSettings;
   /** The Codex folder the helper reads, shortened with ~ for display. */
   codexFolder: string;
-  shortcut: string;
+  /** False when another app holds the Electron shortcut in settings. */
   shortcutAvailable: boolean;
   canPaste: boolean;
   canPositionWindow: boolean;
@@ -98,6 +100,8 @@ export interface PanelBridge {
   update(settings: Partial<PanelSettings>): Promise<void>;
   chooseCodexHome(): Promise<void>;
   shortcut(command: KeyboardCommand): void;
+  /** Releases the Electron shortcut while the panel records a new one, so its keys reach the panel. */
+  recordShortcut(active: boolean): void;
   resize(height: number): void;
   hide(): void;
   quit(): void;

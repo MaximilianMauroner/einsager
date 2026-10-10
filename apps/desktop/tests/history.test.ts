@@ -107,4 +107,7 @@ test('stored settings keep valid fields; the panel cannot change the Codex folde
   assert.deepEqual(mergeSettings(current, { clipboard: 'never', keepHistory: false, showPill: false, codexHome: '/elsewhere' }),
     { ...current, clipboard: 'never', keepHistory: false, showPill: false });
   assert.equal(parseStoredSettings({ edge: 'top' }).showPill, true, 'Earlier settings files keep the pill visible');
+  assert.equal(parseStoredSettings({ edge: 'top' }).shortcut, defaultSettings.shortcut, 'Earlier settings files keep the default shortcut');
+  assert.equal(parseStoredSettings({ shortcut: 'Shift+A' }).shortcut, defaultSettings.shortcut, 'A shortcut that takes over typing is ignored');
+  assert.equal(mergeSettings(defaultSettings, { shortcut: 'Ctrl+Shift+D' }).shortcut, 'Ctrl+Shift+D');
 });

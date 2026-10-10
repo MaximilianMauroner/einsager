@@ -71,6 +71,10 @@ final class KeyboardHelper {
         case "prompt":
             let options = [kAXTrustedCheckOptionPrompt.takeUnretainedValue() as String: true] as CFDictionary
             _ = AXIsProcessTrustedWithOptions(options)
+            // macOS shows that prompt only once per app, so also open the list where access is turned on.
+            if let pane = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility") {
+                NSWorkspace.shared.open(pane)
+            }
         default:
             return
         }

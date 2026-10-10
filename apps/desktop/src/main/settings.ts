@@ -1,8 +1,9 @@
 import type { ClipboardMode, DockEdge, Settings } from '../shared/contract.ts';
+import { DEFAULT_SHORTCUT, isShortcut } from '../shared/shortcut.ts';
 
 const edges: readonly DockEdge[] = ['bottom', 'top', 'left', 'right'];
 const clipboardModes: readonly ClipboardMode[] = ['always', 'if-paste-fails', 'never'];
-export const defaultSettings: Settings = { edge: 'bottom', clipboard: 'if-paste-fails', keepHistory: true, showPill: true };
+export const defaultSettings: Settings = { edge: 'bottom', clipboard: 'if-paste-fails', keepHistory: true, showPill: true, shortcut: DEFAULT_SHORTCUT };
 
 const isEdge = (value: unknown): value is DockEdge => edges.some(edge => edge === value);
 const isClipboardMode = (value: unknown): value is ClipboardMode => clipboardModes.some(mode => mode === value);
@@ -15,6 +16,7 @@ export function mergeSettings(current: Settings, value: unknown): Settings {
   if ('clipboard' in value && isClipboardMode(value.clipboard)) next.clipboard = value.clipboard;
   if ('keepHistory' in value && typeof value.keepHistory === 'boolean') next.keepHistory = value.keepHistory;
   if ('showPill' in value && typeof value.showPill === 'boolean') next.showPill = value.showPill;
+  if ('shortcut' in value && isShortcut(value.shortcut)) next.shortcut = value.shortcut;
   return next;
 }
 

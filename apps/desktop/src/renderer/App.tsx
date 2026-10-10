@@ -2,6 +2,7 @@ import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import type { Delivery, DesktopBridge, DesktopInfo, SessionStatus, TranscriptResult } from '../shared/contract';
 import { MicrophoneRecording, RECORDING_SECONDS } from './audio';
 import { HoldGesture, type RecordingMode } from './gesture';
+import { DEFAULT_SHORTCUT } from '../shared/shortcut';
 
 declare global { interface Window { einsager?: DesktopBridge } }
 type State = 'idle' | 'requesting' | 'recording' | 'processing' | 'message' | 'failure';
@@ -18,7 +19,7 @@ function deliveryMessage(delivery: Delivery | undefined, pasteKey: string) {
 
 export function App() {
   const api = window.einsager;
-  const [info, setInfo] = useState<DesktopInfo>({ edge: 'bottom', shortcut: 'Ctrl+Alt+Space', shortcutAvailable: true, pasteKey: 'Ctrl+V', canPositionWindow: true });
+  const [info, setInfo] = useState<DesktopInfo>({ edge: 'bottom', shortcut: DEFAULT_SHORTCUT, shortcutAvailable: true, pasteKey: 'Ctrl+V', canPositionWindow: true });
   const [state, setState] = useState<State>('idle');
   const [message, setMessage] = useState('');
   const [hovered, setHovered] = useState(false);

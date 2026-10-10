@@ -52,13 +52,18 @@ Audio still goes to ChatGPT's internal transcription endpoint, not a local model
 ## Controls and current limits
 
 Click the pill or press **Ctrl+Alt+Space** to start or finish hands-free
-recording. On macOS, hold **Fn** to talk and release it to transcribe, press
+recording. To change this shortcut, click it in Settings and press a key with
+Ctrl, Alt, Cmd, or Super, or a function key alone; Esc cancels. On macOS, hold **Fn** to talk and release it to transcribe, press
 **Fn+Space** for hands-free, or double-tap **Fn** to keep recording without the
 key; a third quick tap cancels. These Fn shortcuts need Accessibility access for
-einsager: use **Allow…** in Settings. Until then, Ctrl+Alt+Space still works.
-Change either macOS shortcut in Settings: click it, press the new keys, and
-release them. Esc cancels the change, and **Reset to Fn** restores the defaults.
-Click the check to finish; the cross cancels. Escape is registered
+einsager: **Allow…** in Settings opens the Accessibility list in System
+Settings. Until then, the Fn shortcut buttons stay disabled and the
+**Fallback** shortcut, Ctrl+Alt+Space by default, starts dictation. The native Mac app has its own entry with the same name, so its access
+does not count for this app. When you run `pnpm start` from a terminal, macOS
+checks the terminal app's access instead. Change either macOS shortcut in
+Settings: click it, press the new keys, and release them. Esc cancels the
+change, and **Reset to Fn** restores the defaults. Click the check to finish;
+the cross cancels. Escape is registered
 only during a session. While the tray panel has focus, Escape closes its search,
 its Settings, or the panel instead. Dock at top, bottom, left, or right in
 Settings, or drag the pill to an edge. Turn off **Show pill when idle** to hide

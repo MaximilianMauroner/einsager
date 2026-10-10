@@ -1,14 +1,17 @@
 import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
 import type { ClipboardMode, DockEdge, HistoryEntry, KeyboardState, PanelBridge, PanelSettings, PanelState, SessionStatus } from '../shared/contract';
+import { DEFAULT_SHORTCUT, shortcutFromKey } from '../shared/shortcut';
 import { keyCaps } from './keys';
 
 declare global { interface Window { einsagerPanel?: PanelBridge } }
 
 /** The panel's tallest height. A shorter work area lowers it, so the lists scroll inside the window. */
 const MAX_HEIGHT = 600;
+const mac = navigator.platform.startsWith('Mac');
 const initial: PanelState = {
-  status: { state: 'idle' }, history: [], settings: { edge: 'bottom', clipboard: 'if-paste-fails', keepHistory: true, showPill: true },
-  codexFolder: '~/.codex', shortcut: 'Ctrl+Alt+Space', shortcutAvailable: true, canPaste: false, canPositionWindow: true,
+  status: { state: 'idle' }, history: [],
+  settings: { edge: 'bottom', clipboard: 'if-paste-fails', keepHistory: true, showPill: true, shortcut: DEFAULT_SHORTCUT },
+  codexFolder: '~/.codex', shortcutAvailable: true, canPaste: false, canPositionWindow: true,
 };
 const clipboardChoices: { mode: ClipboardMode; label: string; detail: string }[] = [
   { mode: 'always', label: 'Always', detail: 'The transcript stays on the clipboard.' },
@@ -43,7 +46,45 @@ function Keys({ shortcut }: { shortcut: string }) {
   return <span className="keys">{keyCaps(shortcut).map((key, index) => <kbd key={index}>{key}</kbd>)}</span>;
 }
 
-function ShortcutRows({ keyboard, shortcutAvailable, api }: { keyboard: KeyboardState; shortcutAvailable: boolean; api?: PanelBridge }) {
+/** Records Electron's shortcut. The host releases it meanwhile, so pressing it records instead of starting dictation. */
+function ShortcutRecorder({ label, shortcut, available, api }: { label: string; shortcut: string; available: boolean; api?: PanelBridge }) {
+  const [recording, setRecording] = useState(false);
+  useEffect(() => {
+    if (!recording) return;
+    api?.recordShortcut(true);
+    const key = (event: KeyboardEvent) => {
+      event.preventDefault();
+      event.stopPropagation();
+      if (event.key === 'Escape') { setRecording(false); return; }
+      const next = shortcutFromKey(event, mac);
+      if (!next) return;
+      void api?.update({ shortcut: next });
+      setRecording(false);
+    };
+    const visibility = () => { if (document.visibilityState === 'hidden') setRecording(false); };
+    // Capturing on window runs before the panel's own Escape handling, which would close Settings.
+    window.addEventListener('keydown', key, true);
+    document.addEventListener('visibilitychange', visibility);
+    return () => {
+      window.removeEventListener('keydown', key, true);
+      document.removeEventListener('visibilitychange', visibility);
+      api?.recordShortcut(false);
+    };
+  }, [recording, api]);
+  return <>
+    <label className="row">
+      <span>{label}</span>
+      <span className="value">{!available && !recording && 'In use by another app'}
+        <button className={recording ? 'keys-button capturing' : 'keys-button'} onClick={() => setRecording(!recording)}>
+          {recording ? 'Press keys…' : <Keys shortcut={shortcut} />}
+        </button>
+      </span>
+    </label>
+    {recording && <p className="note inset">Press a key with Ctrl, Alt, or {mac ? 'Cmd' : 'Super'}, or a function key. Esc cancels.</p>}
+  </>;
+}
+
+function ShortcutRows({ keyboard, fallback, api }: { keyboard: KeyboardState; fallback: ReactNode; api?: PanelBridge }) {
   const row = (target: 'hold' | 'handsFree', label: string) => {
     const capturing = keyboard.capturing === target;
     return <div className="row">
@@ -59,14 +100,18 @@ function ShortcutRows({ keyboard, shortcutAvailable, api }: { keyboard: Keyboard
       <span>Shortcuts</span>
       <button className="quiet" disabled={!keyboard.trusted} onClick={() => api?.shortcut({ command: 'reset' })}>Reset to Fn</button>
     </div>
+    {/* The reason for the disabled shortcuts comes first, so it stays in view when Settings scrolls. */}
+    {!keyboard.trusted && <>
+      <div className="row">
+        <span className="wrap">Allow Accessibility so einsager can see Fn. Until then, the fallback works.</span>
+        <button className="action" onClick={() => api?.shortcut({ command: 'prompt' })}>Allow…</button>
+      </div>
+      {fallback}
+    </>}
     {row('hold', 'Hold to talk')}
     {row('handsFree', 'Hands-free')}
     {keyboard.capturing && <p className="note inset">Press the new keys, then release them. Esc cancels.</p>}
     {keyboard.error && <p className="note inset alarm">{keyboard.error}</p>}
-    {!keyboard.trusted && <div className="row">
-      <span className="wrap">Allow Accessibility so einsager can see Fn. {shortcutAvailable ? 'Ctrl+Alt+Space works until then.' : 'Another app uses Ctrl+Alt+Space.'}</span>
-      <button className="action" onClick={() => api?.shortcut({ command: 'prompt' })}>Allow…</button>
-    </div>}
   </>;
 }
 
@@ -194,10 +239,10 @@ export function Panel() {
         <button className="row" onClick={() => void api?.chooseCodexHome()}>
           <span>Codex login folder</span><span className="value"><span className="path">{state.codexFolder}</span><Icon name="right" /></span>
         </button>
-        {state.keyboard ? <ShortcutRows keyboard={state.keyboard} shortcutAvailable={state.shortcutAvailable} api={api} /> : <div className="row">
-          <span>Shortcut</span>
-          <span className="value">{!state.shortcutAvailable && 'In use by another app'}<Keys shortcut={state.shortcut} /></span>
-        </div>}
+        {state.keyboard
+          ? <ShortcutRows keyboard={state.keyboard} api={api}
+            fallback={<ShortcutRecorder label="Fallback" shortcut={settings.shortcut} available={state.shortcutAvailable} api={api} />} />
+          : <ShortcutRecorder label="Shortcut" shortcut={settings.shortcut} available={state.shortcutAvailable} api={api} />}
         <div className="row">
           {confirmClear ? <>
             <span>Delete all {history.length} transcripts?</span>
@@ -222,7 +267,7 @@ export function Panel() {
   const recording = status.state === 'requesting' || status.state === 'recording';
   const keyboard = state.keyboard?.trusted ? state.keyboard : undefined;
   let hint: ReactNode = keyboard ? <>Click or hold <Keys shortcut={keyboard.hold} /></>
-    : state.shortcutAvailable ? <>Click or press <Keys shortcut={state.shortcut} /></> : 'Click to start. Another app uses the shortcut.';
+    : state.shortcutAvailable ? <>Click or press <Keys shortcut={settings.shortcut} /></> : 'Click to start. Another app uses the shortcut.';
   if (status.state === 'requesting') hint = 'Starting microphone…';
   if (status.state === 'recording') hint = 'Finish to transcribe, or cancel';
   if (status.state === 'processing') hint = 'Transcribing…';

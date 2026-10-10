@@ -51,8 +51,8 @@ Wayland applications, so the app does not use `xdotool` in this mode. Transcript
 are copied for manual paste; automatic Wayland insertion remains future work.
 This version does not request RemoteDesktop control or use privileged input tools.
 
-Electron's GlobalShortcutsPortal feature is enabled before startup. Ctrl+Alt+Space
-depends on the desktop's shortcut portal and permission. If the shortcut is
+Electron's GlobalShortcutsPortal feature is enabled before startup. The shortcut,
+Ctrl+Alt+Space by default, depends on the desktop's shortcut portal and permission. If the shortcut is
 unavailable, click the pill. The compositor owns window placement, so the
 **Dock the pill** setting and drag requests are disabled. Recording controls and
 labels still resize the window. Always-on-top/fullscreen visibility depends on
