@@ -1,14 +1,94 @@
 # einsager live dictation
 
+These notes include historical paths and commands. Use the
+[architecture guide](architecture.md) for the current source layout and builds.
+
 A native macOS menu-bar app that sends recorded speech to ChatGPT using the
 existing local Codex login. Version 0.2.0 adds the approved Breath e icon,
 a small floating dictation bar, hold-to-talk, hands-free, and custom shortcuts.
 The bundle identifier remains `local.max.codexdictation.poc` to keep its identity.
 
+## Native docking repair, 10 October 2026
+
+The surface now receives the selected dock edge. Left and right placement align
+the pill and label to that edge; top and bottom retain their centered layout.
+This keeps the original handle point inside the expanded pill during hover.
+The native probe checks a release at that screen point on all four docks and
+saves their hover renders.
+
+Source/caller review and whitespace checks passed. Compilation, native probe,
+and renders of this repair remain pending: this VM is Linux, and GitHub Actions
+cannot start because of account billing or spending-limit settings. Max must
+resolve that block before the implementing agent can verify and merge PR #3.
+Earlier native results below cover the code before this repair. Live acceptance
+and menu-highlight lag remain unresolved. No compatibility code was added.
+
+## Wispr bar update, 10 October 2026
+
+The bar now uses the classic Wispr pill: a 40×8 pt idle handle, a dotted hover
+state, a waveform for hold-to-talk, and gray cancel and white check circles for
+hands-free. The hands-free geometry and colors come from the published Wispr
+SVG. Screenshot references guide the other states; a pixel match to the current
+installed Wispr app is not verified. Processing uses three static pale dots.
+Messages, Copy last, and Retry appear in a separate black capsule. Top docking
+is available, with the message below the pill. Microphone levels scale to the
+recent recording range so quiet speech remains visible.
+
+The README includes a GitHub Mermaid flowchart. The MIT license is included,
+and unused icon alternatives and obsolete Python files have been removed.
+
+Passed: Rust formatting, Clippy, 10 Rust tests, 102 native logic checks, native
+panel focus/visibility checks, all bar-state renders, packaged build, plist,
+code signature, and whitespace checks. The build used one compiler job at a
+time. Available memory was 46–50%; swap stayed near 1.6 GiB; disk had 44 GiB
+available. No owned compiler remained after completion.
+
+The updated bundle is in `dist/einsager.app`. The running installed copy was
+not replaced. Live dictation and design acceptance remain for Max to check.
+Menu highlight lag remains unresolved: the earlier profile did not establish
+an Einsager cause, and no performance fix is claimed. A reproducible case is
+needed for the next diagnosis. CI, independent review, and merge did not run.
+No existing nesting or branching check was found, and no checks were waived.
+No compatibility code was added; the existing fallback shortcut remains.
+
+## Coding VM handoff, 9 October 2026 UTC
+
+The source payload checksum matched. The VM worktree started clean on the
+earlier main version. The available Rust base change and the transferred polish
+patch both passed `git apply --check` and were applied without conflicts. The
+six named unused icon files were removed after checking source references; the
+shipped `assets/icons/einsager-breath.pdf` remains. No old Mac backup folders
+were deleted on this VM.
+
+Passed on the VM: `cargo fmt --check`, `git diff --check`, and parsing/rendering
+the updated README flowchart with Mermaid 11. The README now includes clipboard
+write failure, Copy last, empty transcripts, and the delayed focus/clipboard
+recheck. The older plan is marked as history.
+
+Rust tests initially failed because `/home/codex/.fleet/bin/cc` runs Claude,
+not a C compiler. The VM verification command selects `/usr/bin/cc` through
+per-command Cargo linker and C compiler variables. The retry and Clippy were
+blocked by another owner's shared `fleet-build.service`; a bounded two-minute
+wait did not obtain the slot. No unprotected compile was attempted. The first
+guarded attempt enforced 3 GiB memory and zero build swap, used one Cargo job,
+and left no owned compiler running. The guard sampled a peak of about 267 MiB.
+
+The build, 102 native checks, and rendered states described above are evidence
+from the Mac handoff. The Mac bundle and old screenshots were not transferred.
+Linux has no AppKit or macOS permission/input path, so the native build and live
+journeys were omitted here. No checks were waived; no nesting or branching
+check exists. CI, independent review, PR, merge, install, and user acceptance
+did not run for this handoff. No compatibility code was added.
+
+Next: the implementing agent runs guarded Rust tests and Clippy when the shared
+build slot is free. Max checks live dictation, top docking, quiet speech, and
+paste recovery with the new Mac bundle. Menu-highlight lag still needs a
+reproducible Mac case before a fix can be verified.
+
 ## Build and run
 
 ```sh
-zsh build.sh
+zsh apps/macos/scripts/build.sh
 ditto dist/einsager.app /Applications/einsager.app
 open /Applications/einsager.app
 ```
@@ -51,7 +131,7 @@ That dependency has been removed; Documents permission can stay disabled.
 4. Focus the text field you want to use. **Hold Fn** while speaking, then
    release it to transcribe. A hold shorter than half a second is discarded.
    **Fn+Space** starts or stops hands-free. Clicking the bar also starts it;
-   its square stop button finishes it.
+   its check button finishes it.
 5. **Double-tap Fn** within half a second to lock hands-free. A third quick
    press cancels. **Escape** or the cross button cancels an active session.
 6. Choose **Customize shortcuts…** from either menu to change hold-to-talk or
@@ -73,7 +153,7 @@ is already in use, the app reports it. Choose another shortcut or enable keyboar
 access. If Wispr or macOS Dictation uses Fn at the same time, choose a custom
 Einsager shortcut or change the other app's binding.
 
-Drag the floating bar to dock at the bottom, left, or right. The right-click
+Drag the floating bar to dock at the bottom, top, left, or right. The right-click
 menu also offers these positions. The selected edge persists. The bar appears
 across Spaces and permits full-screen use without taking text-field focus.
 
