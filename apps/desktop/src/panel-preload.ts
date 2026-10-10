@@ -8,6 +8,11 @@ const bridge: PanelBridge = {
     ipcRenderer.on('panel:state', handler);
     return () => ipcRenderer.removeListener('panel:state', handler);
   },
+  onSpace(callback) {
+    const handler = (_event: Electron.IpcRendererEvent, height: number) => callback(height);
+    ipcRenderer.on('panel:space', handler);
+    return () => ipcRenderer.removeListener('panel:space', handler);
+  },
   act: action => ipcRenderer.send('panel:act', action),
   copy: id => ipcRenderer.invoke('panel:copy', id),
   remove: id => ipcRenderer.invoke('panel:remove', id),

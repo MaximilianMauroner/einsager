@@ -71,10 +71,14 @@ export class TrayPanel {
   }
 
   private place() {
+    const tray = this.anchor ?? { x: 0, y: 0, width: 0, height: 0 };
+    const display = tray.width && this.canPosition
+      ? screen.getDisplayMatching(tray)
+      : screen.getDisplayNearestPoint(screen.getCursorScreenPoint());
+    // The renderer caps its height to the work area, so its lists scroll instead of being clipped.
+    this.window.webContents.send('panel:space', display.workArea.height);
     // setSize clamps a non-resizable Linux window to its earlier minimum, as for the pill.
     if (!this.canPosition) { this.window.setContentSize(WIDTH, this.height); return; }
-    const tray = this.anchor ?? { x: 0, y: 0, width: 0, height: 0 };
-    const display = tray.width ? screen.getDisplayMatching(tray) : screen.getDisplayNearestPoint(screen.getCursorScreenPoint());
     this.window.setBounds(panelFrame({ width: WIDTH, height: this.height }, tray, display.workArea));
   }
 }

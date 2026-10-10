@@ -69,6 +69,8 @@ export type PanelAction = 'toggle' | 'cancel' | 'retry';
 export interface PanelBridge {
   state(): Promise<PanelState>;
   onState(callback: (state: PanelState) => void): () => void;
+  /** Reports the height of the work area the panel is placed in. */
+  onSpace(callback: (height: number) => void): () => void;
   act(action: PanelAction): void;
   copy(id: string): Promise<boolean>;
   remove(id: string): Promise<void>;

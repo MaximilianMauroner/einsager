@@ -3,6 +3,8 @@ import type { ClipboardMode, DockEdge, HistoryEntry, PanelBridge, PanelSettings,
 
 declare global { interface Window { einsagerPanel?: PanelBridge } }
 
+/** The panel's tallest height. A shorter work area lowers it, so the lists scroll inside the window. */
+const MAX_HEIGHT = 600;
 const initial: PanelState = {
   status: { state: 'idle' }, history: [], settings: { edge: 'bottom', clipboard: 'if-paste-fails', keepHistory: true },
   codexFolder: '~/.codex', shortcut: 'Ctrl+Alt+Space', shortcutAvailable: true, canPaste: false, canPositionWindow: true,
@@ -77,6 +79,7 @@ export function Panel() {
   const [query, setQuery] = useState<string>();
   const [copied, setCopied] = useState<string>();
   const [confirmClear, setConfirmClear] = useState(false);
+  const [space, setSpace] = useState(MAX_HEIGHT);
   const root = useRef<HTMLDivElement>(null);
   const tape = useRef<HTMLDivElement>(null);
   const copiedTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
@@ -86,6 +89,8 @@ export function Panel() {
     void api?.state().then(setState);
     return api?.onState(setState);
   }, [api]);
+  useEffect(() => api?.onSpace(setSpace), [api]);
+  const frame = { maxHeight: Math.min(MAX_HEIGHT, space) };
 
   useLayoutEffect(() => {
     const element = root.current;
@@ -128,7 +133,7 @@ export function Panel() {
   const update = (change: Partial<PanelSettings>) => { void api?.update(change); };
 
   if (view === 'settings') {
-    return <div ref={root} className="panel">
+    return <div ref={root} className="panel" style={frame}>
       <header className="head">
         <button className="back" onClick={() => setView('tape')}><Icon name="back" /><span className="word">Settings</span></button>
       </header>
@@ -187,7 +192,7 @@ export function Panel() {
   if (status.state === 'recording') hint = 'Finish to transcribe, or cancel';
   if (status.state === 'processing') hint = 'Transcribing…';
 
-  return <div ref={root} className="panel">
+  return <div ref={root} className="panel" style={frame}>
     <header className="head">
       <svg className="logo" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h13c0-4-2.7-7-6.5-7S5 8 5 12s2.7 7 6.5 7c3 0 4.2-1.8 6.2-1.8 1.1 0 2 .6 2.8 1.4" /></svg>
       <span className="word">einsager</span>
