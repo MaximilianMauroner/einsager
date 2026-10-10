@@ -1,6 +1,6 @@
 export type DockEdge = 'bottom' | 'top' | 'left' | 'right';
 export type DesktopAction = 'toggle' | 'cancel' | 'retry' | 'copy';
-export type TranscriptResult = { text: string; copied?: boolean } | { error: string } | { cancelled: true };
+export type TranscriptResult = { text: string; copied?: boolean } | { error: string; retryable: boolean } | { cancelled: true };
 
 export interface DesktopInfo {
   edge: DockEdge;

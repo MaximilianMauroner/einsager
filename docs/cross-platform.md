@@ -59,6 +59,10 @@ editor. This layer does not send a paste to another app. A failed transcription
 offers Retry and retains only the current temporary recording. There is no
 transcript history or background recording.
 
+Copy last can copy an earlier transcript while a failed recording stays available
+for Retry. A failure to create or write the temporary recording discards any
+partial file and disables Retry; fix the storage problem and start a new dictation.
+
 Portable recording is 16 kHz, 16-bit mono WAV, capped at 10 minutes so it stays
 below the helper's 25 MiB upload limit. Native Mac recording retains the verified
 20-minute AAC path. Global hold/release, Fn double/triple taps, automatic paste,
@@ -107,6 +111,11 @@ error, Retry, cancel, safe tray Copy, a delayed Mac settings response, and side
 docking through renderer sizing and IPC
 without a real login or network transcription. Unit tests verify PCM/WAV output,
 the upload-size bound, docking, process cancellation, and retained-audio Retry.
+Filesystem fault tests verify partial-file cleanup and prevent Retry from
+launching the helper after a save failure. Smoke also checks that Copy preserves
+recovery and that nonretryable errors disable Retry. These recovery repairs passed
+strict TypeScript and ten desktop unit tests locally; their smoke execution is
+pending the current CI billing block.
 Tests with injected fixture helpers verify transcription delivery without
 reading real credentials. Mac and Windows live acceptance must run on those OSes.
 

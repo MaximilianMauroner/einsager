@@ -25,26 +25,29 @@ export class TranscriptionSession {
     await this.discardResources();
     if (generation !== this.generation) return { cancelled: true };
     if (audio.byteLength === 0 || audio.byteLength > MAX_AUDIO_BYTES) {
-      return { error: 'Recording must be nonempty and no larger than 25 MiB.' };
+      return { error: 'Recording must be nonempty and no larger than 25 MiB.', retryable: false };
     }
-    const directory = await mkdtemp(join(tmpdir(), 'einsager-'));
-    if (generation !== this.generation) {
-      await rm(directory, { recursive: true, force: true });
-      return { cancelled: true };
-    }
-    this.directory = directory;
+    let directory: string;
     try {
+      directory = await mkdtemp(join(tmpdir(), 'einsager-'));
+      if (generation !== this.generation) {
+        await rm(directory, { recursive: true, force: true });
+        return { cancelled: true };
+      }
+      this.directory = directory;
       await writeFile(join(directory, 'recording.wav'), Buffer.from(audio), { mode: 0o600 });
-      return await this.run(generation, directory);
     } catch {
+      if (generation !== this.generation) return { cancelled: true };
+      await this.discardResources();
       return generation === this.generation
-        ? { error: 'Cannot save recording. Check available disk space.' }
+        ? { error: 'Cannot save recording. Check available disk space.', retryable: false }
         : { cancelled: true };
     }
+    return this.run(generation, directory);
   }
 
   async retry(): Promise<TranscriptResult> {
-    if (!this.directory || this.child) return { error: 'No recording to retry. Start a new dictation.' };
+    if (!this.directory || this.child) return { error: 'No recording to retry. Start a new dictation.', retryable: false };
     return this.run(++this.generation, this.directory);
   }
 
@@ -76,11 +79,11 @@ export class TranscriptionSession {
               resolve({ text: value.text }); return;
             }
             if ('error' in value && typeof value.error === 'string') {
-              resolve({ error: value.error }); return;
+              resolve({ error: value.error, retryable: true }); return;
             }
           }
         } catch { /* A missing or crashed helper has no JSON response. */ }
-        resolve({ error: 'Transcription helper failed or timed out. Retry, or rebuild einsager.' });
+        resolve({ error: 'Transcription helper failed or timed out. Retry, or rebuild einsager.', retryable: true });
       });
     });
     if ('text' in result && generation === this.generation) {

@@ -87,7 +87,7 @@ function installIPC() {
   });
   ipcMain.handle('transcribe', async (event, audio: unknown) => {
     trusted(event);
-    if (!(audio instanceof ArrayBuffer)) return { error: 'Invalid recording.' };
+    if (!(audio instanceof ArrayBuffer)) return { error: 'Invalid recording.', retryable: false };
     return deliver(await transcription.transcribe(audio));
   });
   ipcMain.handle('retry', async event => { trusted(event); return deliver(await transcription.retry()); });

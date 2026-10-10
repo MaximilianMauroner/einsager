@@ -44,6 +44,26 @@ try {
   await page.getByText('Cannot read the file-based Codex login.', { exact: false }).waitFor();
   await page.getByRole('button', { name: 'Retry', exact: true }).click();
   await page.getByText('Cannot read the file-based Codex login.', { exact: false }).waitFor();
+  // Simulate an earlier transcript while retaining the current failed recording.
+  await application.evaluate(({ ipcMain, clipboard, BrowserWindow }) => {
+    ipcMain.removeHandler('copy-last');
+    ipcMain.handle('copy-last', () => { clipboard.writeText('Previous transcript'); return true; });
+    BrowserWindow.getAllWindows()[0].webContents.send('action', 'copy');
+  });
+  await expect.poll(() => application.evaluate(({ clipboard }) => clipboard.readText())).toBe('Previous transcript');
+  await page.waitForTimeout(100);
+  await expect(page.getByRole('button', { name: 'Retry', exact: true })).toBeEnabled();
+  await page.getByRole('button', { name: 'Retry', exact: true }).click();
+  await page.getByText('Cannot read the file-based Codex login.', { exact: false }).waitFor();
+
+  // A persistence failure has no complete recording to upload again.
+  await application.evaluate(({ ipcMain }) => {
+    ipcMain.removeHandler('retry');
+    ipcMain.handle('retry', () => ({ error: 'Cannot save recording. Check available disk space.', retryable: false }));
+  });
+  await page.getByRole('button', { name: 'Retry', exact: true }).click();
+  await page.getByText('Cannot save recording.', { exact: false }).waitFor();
+  await expect(page.getByRole('button', { name: 'Retry', exact: true })).toBeDisabled();
   await page.getByRole('button', { name: 'Cancel dictation' }).click();
   await page.getByRole('button', { name: 'Start hands-free dictation' }).waitFor();
   const info = await page.evaluate(() => window.einsager.info());
@@ -128,7 +148,7 @@ try {
     await page.screenshot({ path: `.agents/artifacts/${evidence}-${edge}-hover.png`, omitBackground: true });
   }
   assert.deepEqual(errors, []);
-  console.log(`${evidence}: launch, recording, safe Copy action, login error, Retry, delayed Mac info, cancellation, and side docking passed. No request sent.`);
+  console.log(`${evidence}: launch, recording, safe Copy/recovery, login error, Retry capability, delayed Mac info, cancellation, and side docking passed. No request sent.`);
 } finally {
   await application?.close();
   await rm(directory, { recursive: true, force: true });

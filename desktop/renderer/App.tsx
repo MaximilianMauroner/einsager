@@ -18,13 +18,16 @@ export function App() {
   const container = useRef<HTMLDivElement>(null);
   const recording = useRef<MicrophoneRecording>(null);
   const stateRef = useRef<State>('idle');
+  const retryable = useRef(false);
   const generation = useRef(0);
   const messageTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
   const gesture = useRef<{ x: number; y: number; moved: boolean }>(undefined);
 
-  function change(next: State, text = '') {
+  function change(next: State, text = '', retryAllowed = false) {
     clearTimeout(messageTimer.current);
     stateRef.current = next;
+    retryable.current = retryAllowed;
+    setCanRetry(retryAllowed);
     setState(next);
     setMessage(text);
     api?.active(['requesting', 'recording', 'processing', 'failure'].includes(next));
@@ -38,13 +41,12 @@ export function App() {
     recording.current?.cancel();
     recording.current = null;
     setLevels(Array(10).fill(0));
-    setCanRetry(false);
     change('idle');
     await api?.cancel();
   }
   function result(value: TranscriptResult, id: number) {
     if (id !== generation.current || 'cancelled' in value) return;
-    if ('error' in value) { setCanRetry(true); change('failure', value.error); return; }
+    if ('error' in value) { change('failure', value.error, value.retryable); return; }
     if (!value.text.trim()) { feedback('No speech detected'); return; }
     setCanCopy(true);
     feedback(value.copied === false ? 'Clipboard unavailable. Use Copy last to retry.' : `Copied. Press ${info.pasteKey} in your text field.`);
@@ -58,7 +60,7 @@ export function App() {
     if (!wav) { feedback('No microphone audio. Check your input device.'); return; }
     change('processing');
     try { result(await api!.transcribe(wav), id); }
-    catch { if (id === generation.current) change('failure', 'Could not transcribe. Retry or start a new dictation.'); }
+    catch { if (id === generation.current) change('failure', 'Could not transcribe. Start a new dictation.'); }
   }
   async function toggle() {
     if (stateRef.current === 'recording') { await finish(); return; }
@@ -68,7 +70,6 @@ export function App() {
     await api.cancel();
     if (id !== generation.current) return;
     change('requesting', 'Starting microphone…');
-    setCanRetry(false);
     try {
       const microphone = await MicrophoneRecording.start((level, seconds) => {
         setLevels(previous => [...previous.slice(1), level]);
@@ -83,7 +84,7 @@ export function App() {
     }
   }
   async function retry() {
-    if (!api || stateRef.current !== 'failure') return;
+    if (!api || stateRef.current !== 'failure' || !retryable.current) return;
     const id = ++generation.current;
     change('processing');
     try { result(await api.retry(), id); }
@@ -92,7 +93,10 @@ export function App() {
   async function copy() {
     // Tray actions must not replace the controls for a live recording or upload.
     if (['requesting', 'recording', 'processing'].includes(stateRef.current)) return;
-    if (await api?.copyLast()) feedback(`Copied. Press ${info.pasteKey} in your text field.`);
+    const id = generation.current;
+    const copied = await api?.copyLast();
+    if (id !== generation.current || stateRef.current === 'failure') return;
+    if (copied) feedback(`Copied. Press ${info.pasteKey} in your text field.`);
     else feedback('No transcript on the clipboard. Start a new dictation.');
   }
 
