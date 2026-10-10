@@ -1,6 +1,6 @@
 #!/bin/zsh
 set -euo pipefail
-cd "${0:A:h}"
+cd "${0:A:h:h:h:h}"
 app="${PWD}/dist/einsager.app"
 rm -rf "$app"
 mkdir -p "$app/Contents/MacOS" "$app/Contents/Resources"
@@ -23,7 +23,7 @@ cargo build --locked --release -j 1
 cp target/release/einsager-transcribe "$app/Contents/MacOS/einsager-transcribe"
 codesign --force --sign - "$app/Contents/MacOS/einsager-transcribe"
 cp assets/icons/einsager-breath.pdf "$app/Contents/Resources/einsager-breath.pdf"
-swift -j 1 scripts/make-app-icon.swift "$app/Contents/Resources/einsager.icns"
-swiftc -j 1 DictationSession.swift DictationDelivery.swift DictationBar.swift KeyboardShortcuts.swift Dictation.swift -o "$app/Contents/MacOS/CodexDictation" -framework AppKit -framework AVFoundation -framework Carbon
+swift -j 1 apps/macos/scripts/make-app-icon.swift "$app/Contents/Resources/einsager.icns"
+swiftc -j 1 apps/macos/src/DictationSession.swift apps/macos/src/DictationDelivery.swift apps/macos/src/DictationBar.swift apps/macos/src/KeyboardShortcuts.swift apps/macos/src/Dictation.swift -o "$app/Contents/MacOS/CodexDictation" -framework AppKit -framework AVFoundation -framework Carbon
 codesign --force --sign - "$app"
 print -r -- "$app"

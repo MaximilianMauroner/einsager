@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { encodeWav, RECORDING_SECONDS } from '../renderer/audio.ts';
-import { MAX_AUDIO_BYTES } from '../transcription.ts';
+import { encodeWav, RECORDING_SECONDS } from '../src/renderer/audio.ts';
+import { MAX_AUDIO_BYTES } from '../src/main/transcription.ts';
 
 test('WAV header and PCM encode match the helper format, including clipping', () => {
   const buffer = encodeWav(new Float32Array([-2, 0, 2]), 16000);

@@ -2,10 +2,12 @@ import { app, BrowserWindow, clipboard, dialog, globalShortcut, ipcMain, Menu, n
 import { readFile, writeFile } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
-import type { DesktopAction, DockEdge, TranscriptResult } from './contract';
+import type { DesktopAction, DockEdge, TranscriptResult } from '../shared/contract';
 import { clampFrame, dockFrame, nearestEdge } from './placement';
 import { TranscriptionSession } from './transcription';
+import { platformFor } from './platform';
 
+const platform = platformFor(process.platform);
 app.commandLine.appendSwitch('enable-features', 'GlobalShortcutsPortal');
 const shortcut = 'Control+Alt+Space';
 const edges: DockEdge[] = ['bottom', 'top', 'left', 'right'];
@@ -45,7 +47,7 @@ async function chooseCodexHome() {
 }
 
 function createTranscription() {
-  const name = 'einsager-transcribe' + (process.platform === 'win32' ? '.exe' : '');
+  const name = platform.helperExecutable;
   const file = app.isPackaged ? join(process.resourcesPath, name) : resolve('target/release', name);
   // Keep credentials inside the helper. The renderer never reads the login or receives tokens.
   transcription = new TranscriptionSession({ file }, { ...process.env, ...(codexHome ? { CODEX_HOME: codexHome } : {}) });
@@ -83,7 +85,7 @@ function installIPC() {
   };
   ipcMain.handle('info', event => {
     trusted(event);
-    return { edge, shortcut: 'Ctrl+Alt+Space', shortcutAvailable, pasteKey: process.platform === 'darwin' ? '⌘V' : 'Ctrl+V' };
+    return { edge, shortcut: 'Ctrl+Alt+Space', shortcutAvailable, pasteKey: platform.pasteKey };
   });
   ipcMain.handle('transcribe', async (event, audio: unknown) => {
     trusted(event);
@@ -160,7 +162,7 @@ async function start() {
   window.webContents.on('will-navigate', event => event.preventDefault());
   window.on('close', event => { if (!quitting) event.preventDefault(); });
   const icon = nativeImage.createFromPath(join(__dirname, 'tray.png'));
-  icon.setTemplateImage(process.platform === 'darwin');
+  icon.setTemplateImage(platform.templateTrayIcon);
   tray = new Tray(icon);
   tray.setToolTip('einsager');
   tray.setContextMenu(contextMenu());

@@ -1,5 +1,5 @@
 import { contextBridge, ipcRenderer } from 'electron';
-import type { DesktopAction, DesktopBridge, DockEdge } from './contract';
+import type { DesktopAction, DesktopBridge, DockEdge } from './shared/contract';
 
 const bridge: DesktopBridge = {
   info: () => ipcRenderer.invoke('info'),

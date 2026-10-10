@@ -1,5 +1,8 @@
 # einsager live dictation
 
+These notes include historical paths and commands. Use the
+[architecture guide](architecture.md) for the current source layout and builds.
+
 A native macOS menu-bar app that sends recorded speech to ChatGPT using the
 existing local Codex login. Version 0.2.0 adds the approved Breath e icon,
 a small floating dictation bar, hold-to-talk, hands-free, and custom shortcuts.
@@ -85,7 +88,7 @@ reproducible Mac case before a fix can be verified.
 ## Build and run
 
 ```sh
-zsh build.sh
+zsh apps/macos/scripts/build.sh
 ditto dist/einsager.app /Applications/einsager.app
 open /Applications/einsager.app
 ```

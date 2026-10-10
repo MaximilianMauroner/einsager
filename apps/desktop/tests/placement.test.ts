@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { dockFrame, nearestEdge } from '../placement.ts';
+import { dockFrame, nearestEdge } from '../src/main/placement.ts';
 
 test('all four docks remain within a negative-origin display', () => {
   const area = { x: -1600, y: 90, width: 1600, height: 850 };

@@ -72,13 +72,18 @@ and manual paste remain the fallback. Microphone access requires OS permission.
 
 ## Boundaries and choice
 
-`desktop/renderer/` owns audio capture and the visible session. `desktop/main.ts`
-owns the window, tray, shortcuts, clipboard, and trusted IPC. Its preload exposes
-only the typed operations in `desktop/contract.ts`. The renderer has sandboxing
-and context isolation enabled, no Node access, and no external navigation.
-`desktop/transcription.ts` owns one temporary WAV and child process. Session
+The [architecture guide](architecture.md) maps each app, language, runtime,
+platform, and CPU target. `apps/desktop/src/renderer/` owns audio capture and the
+visible session. `src/main/` owns Electron host operations; `src/preload.ts`
+exposes only the typed operations in `src/shared/contract.ts`. The renderer has
+sandboxing and context isolation enabled, no Node access, and no external
+navigation. `src/main/platform.ts` holds the actual OS differences and is used
+by the host and packager. Paths in this paragraph are relative to `apps/desktop/`.
+
+`src/main/transcription.ts` owns one temporary WAV and child process. Session
 generations reject completions after cancellation or a newer recording.
-The Rust helper owns credential lookup, upload, and JSON output.
+`crates/transcription/` owns credential lookup, upload, and JSON output for both
+apps. `apps/macos/` owns the active Swift/AppKit client and its native checks.
 
 Keeping AppKit alone would need two new native UIs. Tauri would use less memory
 but requires a separate native/webview/audio integration and Linux build
@@ -113,68 +118,10 @@ without a real login or network transcription. Unit tests verify PCM/WAV output,
 the upload-size bound, docking, process cancellation, and retained-audio Retry.
 Filesystem fault tests verify partial-file cleanup and prevent Retry from
 launching the helper after a save failure. Smoke also checks that Copy preserves
-recovery and that nonretryable errors disable Retry. These recovery repairs passed
-strict TypeScript and ten desktop unit tests locally; their smoke execution is
-pending the current CI billing block.
+recovery and that nonretryable errors disable Retry.
 Tests with injected fixture helpers verify transcription delivery without
 reading real credentials. Mac and Windows live acceptance must run on those OSes.
 
 Menu-highlight lag in the earlier native Mac app remains unresolved.
 
-## First-slice verification, 10 October 2026
-
-Passed on the coding VM: seven portable unit tests, Rust formatting, Git
-whitespace checks, README links, and both comparison layouts. The comparison
-state buttons and 2× control passed Chromium checks with no page overflow.
-The page was previewed in dark mode at 728 px and light mode at 360 px, then
-published inline in T3. It is a source reconstruction; native Mac PNGs were not
-transferred. The desktop tray PNG derives from the selected Breath e geometry.
-
-Merge preparation also passed dependency installation, strict TypeScript
-checking, nine Rust unit tests, two CLI tests, and Clippy with warnings denied.
-The guarded run used one compiler job, a 3 GiB group limit, and zero build swap;
-peak group memory was 1.65 GiB. A later install step failed because of Electron's
-build permission. The explicit runtime installer and allowed dependency build
-are now configured together. A later guarded Linux release and desktop build
-passed. The first CI run also passed Linux and Mac builds, then found an obsolete
-Packager default import. Fixing that reached pnpm's dependency-tree incompatibility
-in a local packaging run. Packaging now stages only compiled bundles, the MIT
-license, and a minimal runtime manifest; development dependencies are bundled
-at build time. The next CI run passed Linux and Windows packaging and both launch
-checks. Mac packaging and development launch passed; packaged launch reached
-recording, Retry, and cancel, then failed a waveform-height assertion. The
-delayed-info check now verifies continuing audio callbacks and a live microphone
-track directly, because a steady fake signal can leave the adaptive waveform
-flat. Side docking now anchors the pill's center and aligns it to the selected
-edge when labels expand. Unit and smoke regressions cover these changes. The
-next run passed Mac packaging, both launch checks, all 102 native checks, native
-build, plist lint, and code-signature verification. Linux smoke then exposed a
-native resize race: reading bounds immediately after `setSize` can retain the
-previous size and write it back during docking. Resize now applies the requested
-size and dock position in one `setBounds` call. Smoke also waits for renderer and
-native dimensions to agree before measuring side placement. The updated
-three-OS CI still needs completion.
-No live Codex credentials were read or changed, and no
-transcription request was made in this work.
-
-Review corrected a tray Copy action that could hide live recording controls,
-cancel completion that could reset a newer session, and audio startup from
-global shortcuts. Recording teardown now runs only on unmount, so late Mac
-settings cannot stop a live microphone. The smoke test covers these interleavings.
-Windows
-home fallback is tested with an injected path; only Unix CLI tests override
-`HOME`, so Windows tests never use a real login to test fallback.
-
-The Checks workflow runs types, unit tests, Rust tests/Clippy, build, packaging,
-and a fake-microphone smoke test on Linux, macOS, and Windows. It also runs native
-checks, builds, plist lint, and signature verification on macOS. Current CI,
-review, and merge results belong to the pull request. Review stays in one agent
-under Max's explicit limit; no independent review is claimed. No existing nesting
-or branching check was found and no check was waived.
-
-The previous native Mac checks remain separate evidence. This Linux VM cannot
-verify physical Mac/Windows microphone permissions, compositor behavior, Fn,
-native insertion, or live dictation. Max owns those acceptance checks. The
-implementing agent owns build and smoke completion. Next migration decisions
-are keychain login support, the recording-duration format, hold/release keys,
-and safe automatic insertion. The portable app remains a development slice.
+Current build, review, and merge evidence is recorded in the pull request.

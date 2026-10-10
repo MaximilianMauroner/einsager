@@ -6,7 +6,7 @@ import { syncBuiltinESMExports } from 'node:module';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { setTimeout } from 'node:timers/promises';
-import { TranscriptionSession } from '../transcription.ts';
+import { TranscriptionSession } from '../src/main/transcription.ts';
 
 async function fixture(source: string) {
   const directory = await mkdtemp(join(tmpdir(), 'einsager test '));

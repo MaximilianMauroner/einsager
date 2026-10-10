@@ -1,5 +1,8 @@
 # Implementation plan: match Wispr Flow’s live dictation experience
 
+These notes include historical paths and commands. Use the
+[architecture guide](architecture.md) for the current source layout and builds.
+
 Blast radius: Einsager’s macOS menu-bar icon, global dictation controls, floating status panel, and insertion feedback. Research checked on 9 October 2026. This records the original plan and icon exploration. Implementation status is recorded below.
 
 Current handoff: the Rust helper replaced Python. Max selected the classic Wispr

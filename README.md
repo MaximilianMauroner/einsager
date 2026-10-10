@@ -8,6 +8,9 @@ still safe. You can also paste the transcript by hand.
 
 It is an independent project. It is not affiliated with OpenAI or Wispr.
 
+See the [architecture guide](docs/architecture.md) for the source map,
+platform ownership, runtime boundaries, and CPU build targets.
+
 ## How it works
 
 The native Mac flow below remains available. The portable app uses Electron for
@@ -82,7 +85,7 @@ recording is capped at 10 minutes; native Mac AAC recording retains 20 minutes.
 To build and install the native Mac version:
 
 ```sh
-zsh build.sh
+zsh apps/macos/scripts/build.sh
 ditto dist/einsager.app /Applications/einsager.app
 open /Applications/einsager.app
 ```
@@ -108,7 +111,7 @@ stop at 20 minutes.
 ## Development
 
 ```sh
-zsh scripts/check.sh
+zsh apps/macos/scripts/check.sh
 ```
 
 This runs Rust formatting, Clippy, and tests, the native logic checks, and the

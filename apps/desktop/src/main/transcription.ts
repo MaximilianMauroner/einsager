@@ -2,7 +2,7 @@ import { execFile, type ChildProcess } from 'node:child_process';
 import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import type { TranscriptResult } from './contract.ts';
+import type { TranscriptResult } from '../shared/contract.ts';
 
 export const MAX_AUDIO_BYTES = 25 * 1024 * 1024;
 

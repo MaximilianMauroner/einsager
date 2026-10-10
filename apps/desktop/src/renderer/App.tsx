@@ -1,5 +1,5 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
-import type { DesktopBridge, DesktopInfo, TranscriptResult } from '../contract';
+import type { DesktopBridge, DesktopInfo, TranscriptResult } from '../shared/contract';
 import { MicrophoneRecording, RECORDING_SECONDS } from './audio';
 
 declare global { interface Window { einsager?: DesktopBridge } }

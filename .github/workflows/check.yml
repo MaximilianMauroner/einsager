@@ -48,8 +48,8 @@ jobs:
       - name: Native Mac checks and build
         if: runner.os == 'macOS'
         run: |
-          zsh scripts/check.sh
-          zsh build.sh
+          zsh apps/macos/scripts/check.sh
+          zsh apps/macos/scripts/build.sh
           plutil -lint dist/einsager.app/Contents/Info.plist
           codesign --verify --deep --strict dist/einsager.app
       - uses: actions/upload-artifact@v4
