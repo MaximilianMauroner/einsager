@@ -47,8 +47,10 @@ function reposition() {
   window.setBounds(dockFrame(window.getBounds(), display.workArea, settings.edge, pillHeight));
 }
 
+/** Keeps the in-memory settings when the write fails, for example on a full disk. The next successful save stores them all. */
 async function saveSettings() {
-  await settingsFile.write(JSON.stringify(settings));
+  try { await settingsFile.write(JSON.stringify(settings)); }
+  catch (error) { console.error('Could not save settings:', error); }
 }
 
 async function chooseCodexHome() {
