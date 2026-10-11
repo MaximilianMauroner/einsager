@@ -53,9 +53,13 @@ Archive the output in `release/` with the names the workflow uses:
 
 | System | Command in `release/` |
 |---|---|
-| Linux | `tar -czf einsager-0.2.0-linux-x64.tar.gz einsager-linux-x64` |
+| Linux | `chmod 755 einsager-linux-x64 && tar -czf einsager-0.2.0-linux-x64.tar.gz einsager-linux-x64` |
 | macOS | `ditto -c -k --keepParent einsager-darwin-arm64/einsager.app einsager-0.2.0-macos-arm64.zip` |
 | Windows | Compress the `einsager-win32-x64` folder to `einsager-0.2.0-windows-x64.zip` |
+
+`pnpm package` makes the Linux app folder open only to its owner. The
+[Linux install](linux.md#install) makes root that owner, so the archive needs
+`chmod 755`, as in the workflow. Without it, other users cannot start the app.
 
 Copy the three archives into one folder on the Linux system. There, write the
 checksum list that the [Linux install](linux.md#install) checks, then create

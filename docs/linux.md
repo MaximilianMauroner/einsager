@@ -23,6 +23,12 @@ commands below do every step as root in `/opt/einsager`. They stop at the
 first error, before they make the helper setuid. They need `curl`; on Debian
 and Ubuntu, install it with `sudo apt-get install curl`.
 
+`/opt` and `/opt/einsager` must be real folders, not symbolic links. The block
+stops at a link, also one that root owns, because the start and removal
+commands use the path as written. This install does not support systems that
+link `/opt`, for example Fedora Atomic desktops such as Silverblue, where
+`/opt` leads to `/var/opt`.
+
 Set `version` to a version number from the
 [releases page](https://github.com/MaximilianMauroner/einsager/releases),
 without the leading `v`. Then paste the block into a Bash or Zsh terminal:
