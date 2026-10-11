@@ -249,9 +249,9 @@ export function App() {
         else if (stateRef.current === 'idle' || stateRef.current === 'message') void toggle();
       }}>
       {circles && <button className="circle cancel" aria-label="Cancel dictation" onClick={() => void cancel()}><svg viewBox="0 0 18 18"><path d="M12 6L6 12M6 6l6 6" /></svg></button>}
-      {!handle && <div className="waveform" aria-hidden="true">{levels.map((level, index) => <i key={index} style={{ height: 2.25 + (state === 'recording' ? level : 0) * 13.75 }} />)}</div>}
+      {state === 'processing' ? <div className="processing-dots" role="img" aria-label="Transcribing"><i/><i/><i/></div>
+        : !handle && <div className="waveform" aria-hidden="true">{levels.map((level, index) => <i key={index} style={{ height: 2.25 + (state === 'recording' ? level : 0) * 13.75 }} />)}</div>}
       {state === 'recording' && !holding && <button className="circle finish" aria-label="Finish dictation" onClick={() => void finish()}><svg viewBox="0 0 18 18"><path d="M13 6l-5.5 5.5L5 9" /></svg></button>}
-      {state === 'processing' && <div className="processing-dots" aria-label="Transcribing"><i/><i/><i/></div>}
     </div>
   </div>;
 }
