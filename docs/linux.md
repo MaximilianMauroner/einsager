@@ -33,11 +33,14 @@ version=0.1.0
 archive="einsager-$version-linux-x64.tar.gz"
 url="https://github.com/MaximilianMauroner/einsager/releases/download/v$version"
 
-# Stop unless root owns /opt/einsager and every folder above it,
-# and no group or other user can write to them.
+# Stop unless /opt/einsager and every folder above it are real folders, not
+# symbolic links, that root owns and no group or other user can write to.
+# The start and removal commands below use this path as written.
 mkdir -p -m 755 /opt/einsager
 cd /opt/einsager
 path=$(pwd -P)
+[ "$path" = /opt/einsager ] ||
+  { echo "Symbolic link in path: /opt/einsager leads to $path" >&2; exit 1; }
 while :; do
   [ -n "$(find "$path" -maxdepth 0 -user root ! -perm /022)" ] ||
     { echo "Unsafe owner or permissions: $path" >&2; exit 1; }
@@ -80,11 +83,11 @@ release's checksum list. It does not prove who built the release, because the
 list comes from the same GitHub release over HTTPS.
 
 If the block stops, read the error. When the version folder already exists, the
-block stops without changing it: that version is installed, or an earlier
-attempt stopped. Remove an incomplete folder with
-`sudo rm -r /opt/einsager/0.1.0`, using your version, before you try again.
-To update, run the block with the new version. It installs beside the old
-version, which you can then remove the same way.
+block checks the path and then stops without changing the folder: that version
+is installed, or an earlier attempt stopped. After this stop, remove an
+incomplete folder with `sudo rm -r /opt/einsager/0.1.0`, using your version,
+and try again. To update, run the block with the new version. It installs
+beside the old version, which you can then remove the same way.
 
 ## X11
 
