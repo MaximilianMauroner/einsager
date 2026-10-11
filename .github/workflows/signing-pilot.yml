@@ -1,0 +1,63 @@
+# PROPOSED, NOT INSTALLED. Diagnostic evidence for einsager issue #10 / PR #11, not acceptance CI.
+#
+# Place on a throwaway branch only, never on main or the PR #11 branch:
+#   .github/workflows/signing-pilot.yml          <- this file
+#   .github/diagnostics/macos-signing-pilot.mjs  <- macos-signing-pilot.mjs from the same artifact directory
+# Push that branch as diagnostics/signing-pilot-<n>. The existing Checks workflow runs only on pull_request and on
+# pushes to main, so this push starts only this job. It is not a required check, it does not skip or replace the
+# failing macOS signing test, and it has no secrets. Delete the branch after the result artifact is saved.
+name: Signing pilot (diagnostic)
+
+on:
+  push:
+    branches: ['diagnostics/signing-pilot-*']
+
+permissions:
+  contents: read
+
+concurrency:
+  group: signing-pilot-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  pilot:
+    name: rcodesign 0.29.0 pilot (macOS 26 arm64, diagnostic)
+    # The failing Checks job ran on image macos-26-arm64; this label selects the same image family.
+    runs-on: macos-26
+    # Also bounds ensureMacSigningIdentity, whose security commands have no per-command timeout.
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Download pinned rcodesign 0.29.0 (aarch64-apple-darwin)
+        env:
+          ARCHIVE: apple-codesign-0.29.0-aarch64-apple-darwin.tar.gz
+          # From the release's SHA256SUMS and .sha256 assets, checked on 2026-10-11.
+          ARCHIVE_SHA256: d1a532150adaf90048260d76359261aa716abafc45c53c5dc18845029184334a
+        run: |
+          mkdir "$RUNNER_TEMP/rcodesign"
+          cd "$RUNNER_TEMP/rcodesign"
+          curl -fsSL --proto '=https' --retry 3 --max-time 120 -o "$ARCHIVE" \
+            "https://github.com/indygreg/apple-platform-rs/releases/download/apple-codesign/0.29.0/$ARCHIVE"
+          echo "$ARCHIVE_SHA256  $ARCHIVE" | shasum -a 256 -c -
+          tar -xzf "$ARCHIVE"
+      - name: Run pilot
+        # The script also checks the executable's own SHA-256 and version before it runs it. --keychain requests the
+        # keychain arm, so an error, timeout, or block in either arm fails this step instead of passing without proof.
+        run: >
+          node .github/diagnostics/macos-signing-pilot.mjs
+          --rcodesign "$RUNNER_TEMP/rcodesign/apple-codesign-0.29.0-aarch64-apple-darwin/rcodesign"
+          --signing-module apps/desktop/scripts/macos-signing.mjs
+          --out "$RUNNER_TEMP/signing-pilot/result.json"
+          --keychain
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: signing-pilot-result
+          path: ${{ runner.temp }}/signing-pilot/
+          if-no-files-found: warn
+          retention-days: 7
