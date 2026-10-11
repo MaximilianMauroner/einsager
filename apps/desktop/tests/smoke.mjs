@@ -2,7 +2,7 @@
 // This uses Chromium's fake microphone and an empty Codex folder, never a real login.
 import { _electron as electron, expect } from '@playwright/test';
 import assert from 'node:assert/strict';
-import { mkdtemp, readFile, rm, mkdir } from 'node:fs/promises';
+import { mkdtemp, readFile, readdir, rm, mkdir } from 'node:fs/promises';
 import { homedir, tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 
@@ -31,6 +31,18 @@ try {
     env: { ...process.env, CODEX_HOME: codex, ...(waylandPolicy ? { XDG_SESSION_TYPE: 'wayland', WAYLAND_DISPLAY: 'test-policy' } : {}) },
   });
   const page = await application.firstWindow();
+  // Settings write failures appear only on the main process console. Keep them as failure evidence for issue #10.
+  await application.evaluate(() => {
+    const report = console.error.bind(console);
+    globalThis.testSettingsErrors = [];
+    console.error = (...args) => {
+      const [label, error] = args;
+      if (label === 'Could not save settings:') {
+        globalThis.testSettingsErrors.push({ code: error?.code, syscall: error?.syscall, message: String(error?.message ?? error) });
+      }
+      report(...args);
+    };
+  });
   const errors = [];
   page.on('pageerror', error => errors.push(error.message));
   await page.getByRole('button', { name: 'Start hands-free dictation' }).waitFor();
@@ -87,15 +99,32 @@ try {
   await clickInPanel('[aria-label="Settings"]');
   await expect.poll(panelText).toContain('Clipboard after dictation');
   await inPanel(`[...document.querySelectorAll('.choice')].find(choice => choice.textContent.startsWith('Always')).click()`);
+  const historySwitch = () => inPanel(`document.querySelector('[role="switch"]').getAttribute('aria-checked')`);
+  const historySwitchBefore = await historySwitch();
+  // Windows sometimes keeps keepHistory true (issue #10). On failure, report what each side holds, reading only the test profile.
+  const historyEvidence = async () => ({
+    historySwitchBefore,
+    historySwitchAfter: await historySwitch(),
+    mainSettings: await inPanel('window.einsagerPanel.state().then(state => state.settings)'),
+    profile,
+    userData: await application.evaluate(({ app }) => app.getPath('userData')),
+    profileFiles: (await readdir(profile)).filter(name => name.startsWith('settings.json')),
+    settingsErrors: await application.evaluate(() => globalThis.testSettingsErrors),
+  });
   await clickInPanel('[role="switch"]');
   await expect.poll(async () => JSON.parse(await readFile(join(profile, 'settings.json'), 'utf8')))
-    .toMatchObject({ edge: 'bottom', clipboard: 'always', keepHistory: false });
+    .toMatchObject({ edge: 'bottom', clipboard: 'always', keepHistory: false })
+    .catch(async error => {
+      console.error('History persistence evidence:', await historyEvidence().catch(reason => `unavailable: ${reason}`));
+      throw error;
+    });
   const resetCodexFolder = `[...document.querySelectorAll('button')].find(button => button.textContent === 'Reset to default')`;
   assert.equal(await inPanel(`${resetCodexFolder}.disabled`), false, 'An inherited Codex folder can be reset');
   await inPanel(`${resetCodexFolder}.click()`);
   await expect.poll(async () => JSON.parse(await readFile(join(profile, 'settings.json'), 'utf8')).codexHome)
     .toBe(join(homedir(), '.codex'));
-  await expect.poll(() => inPanel('document.querySelector(".path").textContent')).toBe('~/.codex');
+  // The panel keeps the platform's separator, for example ~\.codex on Windows.
+  await expect.poll(() => inPanel('document.querySelector(".path").textContent')).toBe(join('~', '.codex'));
   await expect.poll(() => inPanel(`${resetCodexFolder}.disabled`)).toBe(true);
   // Restore the empty test login through the chooser before further recording checks.
   await application.evaluate(({ dialog }, codex) => {

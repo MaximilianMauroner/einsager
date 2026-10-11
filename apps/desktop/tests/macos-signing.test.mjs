@@ -31,7 +31,21 @@ test('local app and helper updates retain their certificate identity and reject 
       const executables = ['Contents/MacOS/einsager', 'Contents/Resources/einsager-keys', 'Contents/Resources/einsager-transcribe']
         .map(file => join(app, file));
       for (const executable of executables) await copyFile('/bin/echo', executable);
-      const sign = () => execFileSync(process.execPath, [script, app, signingDirectory]);
+      // CI cannot find the stored identity (issue #10). On failure, list what the test keychain offers: all and valid
+      // code signing identities, and its certificates' public attributes, which tell a missing key pairing from discovery.
+      const keychainEvidence = () => [['find-identity', '-p', 'codesigning'], ['find-identity', '-v', '-p', 'codesigning'], ['find-certificate', '-a', '-Z']]
+        .map(args => {
+          const result = spawnSync('/usr/bin/security', [...args, keychain], { encoding: 'utf8' });
+          return `security ${args.join(' ')} <test keychain> (exit ${result.status}):\n${result.stdout}${result.stderr}`;
+        }).join('\n');
+      const sign = () => {
+        try {
+          execFileSync(process.execPath, [script, app, signingDirectory]);
+        } catch (error) {
+          console.error(keychainEvidence());
+          throw error;
+        }
+      };
       const requirement = file => {
         const displayed = spawnSync('/usr/bin/codesign', ['-dr', '-', file], { encoding: 'utf8' });
         assert.equal(displayed.status, 0, displayed.stderr);
