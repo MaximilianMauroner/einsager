@@ -47,17 +47,46 @@ try {
   page.on('pageerror', error => errors.push(error.message));
   await page.getByRole('button', { name: 'Start hands-free dictation' }).waitFor();
   await page.screenshot({ path: `.agents/artifacts/${evidence}-idle.png`, omitBackground: true });
-  // Side docking sizes differed in Windows CI (issue #10). Keep only the latest pill size request and native
-  // bounds request, as numbers, without changing either.
+  // Side docking sizes differed in Windows CI (issue #10). Keep the last 16 pill geometry events in call order, as
+  // numbers, without changing them: each native bounds request with the bounds just before and after it and the size
+  // limits after it, and each pill size request. This listener runs after the production one, so a size request
+  // follows the bounds request that its handler made.
   await application.evaluate(({ BrowserWindow, ipcMain }) => {
+    const geometry = globalThis.testGeometry = [];
+    const keep = entry => {
+      geometry.push(entry);
+      if (geometry.length > 16) geometry.shift();
+    };
+    // Copies only numeric fields. A failed read gives 'unavailable', so it cannot change the native call or its result.
+    const read = (get, keys) => {
+      try {
+        const value = get();
+        return Object.fromEntries(keys.map(key => {
+          const number = value?.[key];
+          return [key, typeof number === 'number' ? number : 'unavailable'];
+        }));
+      } catch {
+        return 'unavailable';
+      }
+    };
+    const rect = ['x', 'y', 'width', 'height'];
     ipcMain.on('resize', (event, width, height, pillHeight) => {
-      if ([width, height, pillHeight].every(value => typeof value === 'number')) globalThis.testResize = { width, height, pillHeight };
+      if ([width, height, pillHeight].every(value => typeof value === 'number')) {
+        keep({ phase: 'resize after production handler', width, height, pillHeight });
+      }
     });
     const window = BrowserWindow.getAllWindows().find(window => window.webContents.getURL().endsWith('index.html'));
     const setBounds = window.setBounds;
     window.setBounds = function (bounds) {
-      globalThis.testSetBounds = { x: bounds?.x, y: bounds?.y, width: bounds?.width, height: bounds?.height };
-      return setBounds.apply(this, arguments);
+      const entry = { phase: 'setBounds', request: read(() => bounds, rect), before: read(() => window.getBounds(), rect) };
+      try {
+        return setBounds.apply(this, arguments);
+      } finally {
+        entry.after = read(() => window.getBounds(), rect);
+        entry.minimumSize = read(() => { const [width, height] = window.getMinimumSize(); return { width, height }; }, ['width', 'height']);
+        entry.maximumSize = read(() => { const [width, height] = window.getMaximumSize(); return { width, height }; }, ['width', 'height']);
+        keep(entry);
+      }
     };
   });
   await page.getByRole('button', { name: 'Start hands-free dictation' }).click();
@@ -274,7 +303,8 @@ try {
       return {
         contentBounds: window.getContentBounds(), minimumSize: window.getMinimumSize(),
         workArea: display.workArea, scaleFactor: display.scaleFactor,
-        resize: globalThis.testResize, setBounds: globalThis.testSetBounds,
+        // One JSON line per event, because console output hides fields nested this deep.
+        geometry: globalThis.testGeometry.map(entry => JSON.stringify(entry)),
       };
     }),
     renderer: await page.evaluate(() => ({ innerWidth, innerHeight, devicePixelRatio })),
