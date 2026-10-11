@@ -201,6 +201,7 @@ export function App() {
     return () => document.removeEventListener('keydown', key);
   });
 
+  // The surface keeps its own size inside a larger window (style.css), so this reports the size the pill needs.
   useLayoutEffect(() => {
     const observer = new ResizeObserver(entries => {
       const { width, height } = entries[0].contentRect;

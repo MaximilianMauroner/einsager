@@ -4,7 +4,7 @@ import { homedir } from 'node:os';
 import { join, resolve, sep } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import type { DesktopAction, DesktopInfo, KeyboardState, Microphone, PanelState, SessionStatus, Settings, TranscriptResult } from '../shared/contract';
-import { clampFrame, dockFrame, nearestEdge } from './placement';
+import { clampFrame, dockWindow, nearestEdge } from './placement';
 import { TranscriptionSession } from './transcription';
 import { platformFor } from './platform';
 import { TranscriptDelivery } from './delivery';
@@ -53,8 +53,8 @@ const panelURL = pathToFileURL(rendererFile('panel.html')).href;
 function send(action: DesktopAction) { window.webContents.send('action', action); }
 function reposition() {
   if (linux?.canPositionWindow === false) return;
-  const display = screen.getDisplayMatching(window.getBounds());
-  window.setBounds(dockFrame(window.getBounds(), display.workArea, settings.edge, pillHeight));
+  const bounds = window.getBounds();
+  dockWindow(window, bounds, screen.getDisplayMatching(bounds).workArea, settings.edge, pillHeight);
 }
 
 /** Keeps the in-memory settings when the write fails, for example on a full disk. The next successful save stores them all. */
@@ -291,7 +291,7 @@ function installIPC() {
     }
     const display = screen.getDisplayMatching(window.getBounds());
     // Apply size and position together; Linux may still report the previous size after setSize.
-    window.setBounds(dockFrame(size, display.workArea, settings.edge, pillHeight));
+    dockWindow(window, size, display.workArea, settings.edge, pillHeight);
   });
   ipcMain.on('drag', (event, dx: unknown, dy: unknown, finished: unknown) => {
     trusted(event);
