@@ -47,6 +47,19 @@ try {
   page.on('pageerror', error => errors.push(error.message));
   await page.getByRole('button', { name: 'Start hands-free dictation' }).waitFor();
   await page.screenshot({ path: `.agents/artifacts/${evidence}-idle.png`, omitBackground: true });
+  // Side docking sizes differed in Windows CI (issue #10). Keep only the latest pill size request and native
+  // bounds request, as numbers, without changing either.
+  await application.evaluate(({ BrowserWindow, ipcMain }) => {
+    ipcMain.on('resize', (event, width, height, pillHeight) => {
+      if ([width, height, pillHeight].every(value => typeof value === 'number')) globalThis.testResize = { width, height, pillHeight };
+    });
+    const window = BrowserWindow.getAllWindows().find(window => window.webContents.getURL().endsWith('index.html'));
+    const setBounds = window.setBounds;
+    window.setBounds = function (bounds) {
+      globalThis.testSetBounds = { x: bounds?.x, y: bounds?.y, width: bounds?.width, height: bounds?.height };
+      return setBounds.apply(this, arguments);
+    };
+  });
   await page.getByRole('button', { name: 'Start hands-free dictation' }).click();
   await page.getByRole('button', { name: 'Finish dictation' }).waitFor();
   await application.evaluate(({ BrowserWindow }) => {
@@ -244,13 +257,31 @@ try {
 
   // Exercise renderer sizing, IPC placement, and side alignment together.
   const pill = page.locator('.pill');
+  // Compares the native pill window with the rendered surface. delta is the larger of the two axis differences.
+  const pillSize = async () => {
+    const surface = await page.locator('.surface').boundingBox();
+    assert.ok(surface);
+    const bounds = await application.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows().find(window => window.webContents.getURL().endsWith('index.html')).getBounds());
+    const widthDelta = Math.abs(bounds.width - Math.ceil(surface.width));
+    const heightDelta = Math.abs(bounds.height - Math.ceil(surface.height));
+    return { surface, bounds, widthDelta, heightDelta, delta: Math.max(widthDelta, heightDelta) };
+  };
+  const pillSizeEvidence = async sample => ({
+    sample,
+    main: await application.evaluate(({ BrowserWindow, screen }) => {
+      const window = BrowserWindow.getAllWindows().find(window => window.webContents.getURL().endsWith('index.html'));
+      const display = screen.getDisplayMatching(window.getBounds());
+      return {
+        contentBounds: window.getContentBounds(), minimumSize: window.getMinimumSize(),
+        workArea: display.workArea, scaleFactor: display.scaleFactor,
+        resize: globalThis.testResize, setBounds: globalThis.testSetBounds,
+      };
+    }),
+    renderer: await page.evaluate(() => ({ innerWidth, innerHeight, devicePixelRatio })),
+  });
   if (waylandPolicy) {
     // Resizing must keep labels visible even when the compositor owns placement.
-    await expect.poll(async () => {
-      const surface = await page.locator('.surface').boundingBox();
-      const bounds = await application.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows().find(window => window.webContents.getURL().endsWith('index.html')).getBounds());
-      return Math.max(Math.abs(bounds.width - Math.ceil(surface.width)), Math.abs(bounds.height - Math.ceil(surface.height)));
-    }).toBeLessThanOrEqual(1);
+    await expect.poll(async () => (await pillSize()).delta).toBeLessThanOrEqual(1);
     await application.evaluate(({ BrowserWindow }) => {
       const window = BrowserWindow.getAllWindows().find(window => window.webContents.getURL().endsWith('index.html'));
       globalThis.testBoundsCalls = 0;
@@ -272,12 +303,15 @@ try {
     await page.evaluate(({ dx, dy }) => window.einsager.drag(dx, dy, true), shift);
     await page.locator(`.surface.${edge}`).waitFor();
     // Wait for the renderer's resize request to reach the native window before sampling it.
+    // The sample is kept when its delta is returned, so the evidence shows the value that was compared last.
+    let sample;
     await expect.poll(async () => {
-      const surface = await page.locator('.surface').boundingBox();
-      assert.ok(surface);
-      const bounds = await application.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows().find(window => window.webContents.getURL().endsWith('index.html')).getBounds());
-      return Math.max(Math.abs(bounds.width - Math.ceil(surface.width)), Math.abs(bounds.height - Math.ceil(surface.height)));
-    }).toBeLessThanOrEqual(1);
+      sample = { edge, ...await pillSize() };
+      return sample.delta;
+    }).toBeLessThanOrEqual(1).catch(async error => {
+      console.error('Side docking size evidence:', await pillSizeEvidence(sample).catch(reason => `unavailable: ${reason}`));
+      throw error;
+    });
     const position = async () => {
       const rect = await pill.boundingBox();
       assert.ok(rect);
