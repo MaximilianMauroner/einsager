@@ -1,0 +1,52 @@
+name: Linux packaged smoke flake (diagnostic)
+
+# One-off diagnosis: the packaged Linux app sometimes opens no window within 30 seconds in the smoke test.
+# This repeats the CI sequence with Playwright's browser log, which includes the app's stdout and stderr.
+# This branch is never merged.
+on:
+  push:
+    branches: [diagnostics/linux-packaged-flake-20261014]
+
+permissions:
+  contents: read
+
+jobs:
+  repeat:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      CARGO_BUILD_JOBS: 1
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - uses: pnpm/action-setup@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm build
+      - run: pnpm package
+      - run: sudo apt-get update && sudo apt-get install -y xdotool
+      - name: Repeat source then packaged smoke
+        env:
+          DEBUG: pw:browser*,pw:api
+        run: |
+          failures=0
+          for i in 1 2 3 4 5 6 7 8; do
+            if xvfb-run -a sh -c 'pnpm test:desktop && pnpm test:packaged' > "run-$i.log" 2>&1; then
+              echo "run $i: pass"
+            else
+              failures=$((failures + 1))
+              echo "run $i: FAIL"
+              echo "::group::run $i log (last 200 lines)"
+              tail -n 200 "run-$i.log"
+              echo "::endgroup::"
+              ps -eo pid,ppid,stat,etime,cmd | grep -i einsager | grep -v grep || true
+            fi
+          done
+          echo "failures: $failures of 8"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: flake-logs
+          path: run-*.log
