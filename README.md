@@ -42,11 +42,11 @@ Download the file for your system from the
 | Windows, x64 | `einsager-<version>-windows-x64.zip` |
 | Linux, x64 | `einsager-<version>-linux-x64.tar.gz` |
 
-v0.1.0 has the macOS file only. v0.1.1 adds the Windows and Linux files, but
-it is not released yet. Until then, [build from source](#build-from-source) on
-those systems.
+v0.1.1 has the macOS file only for now. Its Windows and Linux files come when
+the release workflow can run again. Until then,
+[build from source](#build-from-source) on those systems.
 
-The macOS build needs macOS 12 or later. The Linux build needs glibc 2.34 or
+The macOS build needs macOS 13 or later. The Linux build needs glibc 2.34 or
 later, for example Ubuntu 22.04 or Debian 12. For an Intel Mac or an ARM
 computer, [build from source](#build-from-source).
 `SHA256SUMS.txt` in the release lists the checksum of each file.

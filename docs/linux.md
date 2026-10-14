@@ -29,8 +29,8 @@ commands use the path as written. This install does not support systems that
 link `/opt`, for example Fedora Atomic desktops such as Silverblue, where
 `/opt` leads to `/var/opt`.
 
-The first release with a Linux file is v0.1.1, which is not released yet.
-Until then, [build from source](../README.md#build-from-source).
+v0.1.1 has no Linux file yet. It comes when the release workflow can run
+again. Until then, [build from source](../README.md#build-from-source).
 
 Set `version` to a version number from the
 [releases page](https://github.com/MaximilianMauroner/einsager/releases),
