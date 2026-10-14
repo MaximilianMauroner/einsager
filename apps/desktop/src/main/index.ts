@@ -275,6 +275,10 @@ function installIPC() {
     updateEscape();
     publish();
   });
+  // macOS keeps the top of a window at least 32 points above the bottom of the work area. The 8-point handle's
+  // window therefore sat 12 points above where docking puts the pill, and the pill moved when it expanded. On macOS
+  // the window keeps the expanded pill's height, and the renderer draws the handle on the docked side.
+  const minimumWindowHeight = process.platform === 'darwin' ? 28 : 8;
   ipcMain.on('resize', (event, width: unknown, height: unknown, measuredPillHeight: unknown) => {
     trusted(event);
     if (typeof width !== 'number' || typeof height !== 'number' || typeof measuredPillHeight !== 'number'
@@ -282,7 +286,7 @@ function installIPC() {
     pillHeight = Math.min(28, Math.max(8, measuredPillHeight));
     const size = {
       width: Math.round(Math.min(420, Math.max(40, width))),
-      height: Math.round(Math.min(180, Math.max(8, height))),
+      height: Math.round(Math.min(180, Math.max(minimumWindowHeight, height))),
     };
     if (linux?.canPositionWindow === false) {
       // setSize clamps to a non-resizable Linux window's previous minimum size.
