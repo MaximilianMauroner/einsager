@@ -5,6 +5,11 @@ einsager is a desktop dictation app for macOS, Windows, and Linux. It
 transcribes with the ChatGPT login that Codex already keeps on your computer,
 so it needs no separate account, subscription, or API key.
 
+> [!WARNING]
+> einsager is an **alpha**. Expect bugs and changes between versions, and read
+> the [known limits](#known-limits). Please
+> [report problems](https://github.com/MaximilianMauroner/einsager/issues/new/choose).
+
 > [!IMPORTANT]
 > einsager sends your audio to ChatGPT's internal transcription endpoint, the
 > one that Codex uses. It is not a public API and can change or stop working at
@@ -36,6 +41,9 @@ Download the file for your system from the
 | macOS, Apple silicon | `einsager-<version>-macos-arm64.zip` |
 | Windows, x64 | `einsager-<version>-windows-x64.zip` |
 | Linux, x64 | `einsager-<version>-linux-x64.tar.gz` |
+
+v0.1.0 has the macOS file only. The Windows and Linux files come with the next
+release. Until then, [build from source](#build-from-source) on those systems.
 
 The macOS build needs macOS 12 or later. The Linux build needs glibc 2.34 or
 later, for example Ubuntu 22.04 or Debian 12. For an Intel Mac or an ARM
@@ -84,6 +92,23 @@ Install `xdotool` for automatic paste on X11. See
 The [usage guide](docs/usage.md) covers settings, permissions, data handling,
 and what each platform supports.
 
+## Known limits
+
+- Transcription depends on an internal ChatGPT endpoint, not a public API. It
+  can change or stop working at any time.
+- Codex must keep the ChatGPT login in a file. A login in the system keychain
+  does not work. See [Codex login](docs/usage.md#codex-login).
+- Automatic paste works on macOS and on Linux X11. On Windows and Wayland, you
+  paste the transcript yourself.
+- On Wayland, the desktop places the pill, so you cannot drag or dock it.
+- The macOS app is not signed by Apple, so macOS treats each version as a new
+  app. After an update, remove einsager from the Accessibility list and add it
+  again. See [macOS permissions](docs/usage.md#macos-permissions).
+- There is no automatic update. Watch the
+  [releases](https://github.com/MaximilianMauroner/einsager/releases) for new
+  versions.
+- A recording stops after 10 minutes.
+
 ## Privacy
 
 Audio leaves your computer: the bundled helper uploads each recording to
@@ -91,6 +116,12 @@ ChatGPT with your Codex login. The login stays in that helper. History and
 settings stay on your computer, and einsager never stores audio after a
 successful transcription. einsager has no account, analytics, or update check.
 [Details](docs/usage.md#data-and-privacy).
+
+## Feedback
+
+Report bugs and ideas in
+[issues](https://github.com/MaximilianMauroner/einsager/issues/new/choose).
+Report security problems privately, as [SECURITY.md](SECURITY.md) describes.
 
 ## Build from source
 
