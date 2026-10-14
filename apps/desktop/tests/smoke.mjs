@@ -18,11 +18,16 @@ const evidence = waylandPolicy ? 'wayland-policy' : packaged ? 'packaged' : 'des
 const directory = await mkdtemp(join(tmpdir(), 'einsager-smoke-'));
 const profile = join(directory, 'profile');
 const codex = join(directory, 'empty-codex');
+// A poll can run before the app's first write, or on Windows while the app replaces the file. Both read as not saved yet.
+const savedSettings = () => readFile(join(profile, 'settings.json'), 'utf8').then(JSON.parse,
+  error => { if (['ENOENT', 'EPERM', 'EBUSY'].includes(error.code)) return {}; throw error; });
 await mkdir(codex);
 // Inherited CODEX_HOME must also enable Reset, even without a folder chosen in settings.
 await mkdir(profile);
 await mkdir('.agents/artifacts', { recursive: true });
 let application;
+// The app's own output explains a failure that Playwright reports only as a timeout.
+const appOutput = [];
 try {
   application = await electron.launch({
     ...(packaged ? { executablePath } : {}),
@@ -30,6 +35,9 @@ try {
     // This exercises the conservative Wayland policy on Xvfb, not a real compositor.
     env: { ...process.env, CODEX_HOME: codex, ...(waylandPolicy ? { XDG_SESSION_TYPE: 'wayland', WAYLAND_DISPLAY: 'test-policy' } : {}) },
   });
+  for (const stream of [application.process().stdout, application.process().stderr]) {
+    stream?.on('data', chunk => appOutput.push(String(chunk)));
+  }
   const page = await application.firstWindow();
   const errors = [];
   page.on('pageerror', error => errors.push(error.message));
@@ -88,12 +96,12 @@ try {
   await expect.poll(panelText).toContain('Clipboard after dictation');
   await inPanel(`[...document.querySelectorAll('.choice')].find(choice => choice.textContent.startsWith('Always')).click()`);
   await clickInPanel('[role="switch"]');
-  await expect.poll(async () => JSON.parse(await readFile(join(profile, 'settings.json'), 'utf8')))
+  await expect.poll(savedSettings)
     .toMatchObject({ edge: 'bottom', clipboard: 'always', keepHistory: false });
   const resetCodexFolder = `[...document.querySelectorAll('button')].find(button => button.textContent === 'Reset to default')`;
   assert.equal(await inPanel(`${resetCodexFolder}.disabled`), false, 'An inherited Codex folder can be reset');
   await inPanel(`${resetCodexFolder}.click()`);
-  await expect.poll(async () => JSON.parse(await readFile(join(profile, 'settings.json'), 'utf8')).codexHome)
+  await expect.poll(async () => (await savedSettings()).codexHome)
     .toBe(join(homedir(), '.codex'));
   // The panel keeps the platform's separator, for example ~\.codex on Windows.
   await expect.poll(() => inPanel('document.querySelector(".path").textContent')).toBe(join('~', '.codex'));
@@ -107,7 +115,7 @@ try {
     };
   }, codex);
   await clickInPanel('[aria-label^="Change the Codex login folder"]');
-  await expect.poll(async () => JSON.parse(await readFile(join(profile, 'settings.json'), 'utf8')).codexHome).toBe(codex);
+  await expect.poll(async () => (await savedSettings()).codexHome).toBe(codex);
   await expect.poll(() => inPanel(`${resetCodexFolder}.disabled`)).toBe(false);
   // The pill lists Chromium's fake inputs for Settings. Choose the last one, which is not the default.
   const microphoneSelect = `[...document.querySelectorAll('label.row')].find(row => row.textContent.startsWith('Microphone')).querySelector('select')`;
@@ -120,7 +128,7 @@ try {
     return value;
   })()`);
   assert.ok(microphone, 'A connected microphone has an id');
-  await expect.poll(async () => JSON.parse(await readFile(join(profile, 'settings.json'), 'utf8')).microphone).toBe(microphone);
+  await expect.poll(async () => (await savedSettings()).microphone).toBe(microphone);
   await clickInPanel('.back');
   await expect.poll(panelText).toContain('History is off.');
   await application.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()
@@ -395,6 +403,9 @@ try {
 
   assert.deepEqual(errors, []);
   console.log(`${evidence}: launch, recording, safe Copy/recovery, login error, Retry capability, tray panel state and settings, Codex folder reset, microphone choice and fallback, hidden idle pill, delayed Mac info, cancellation, hold-to-talk handoff to transcription, and ${waylandPolicy ? 'compositor-owned placement with working resize' : 'docking at all four edges'} passed. No request sent.`);
+} catch (error) {
+  if (appOutput.length) console.error(`App output:\n${appOutput.join('')}`);
+  throw error;
 } finally {
   await application?.close();
   await rm(directory, { recursive: true, force: true });
