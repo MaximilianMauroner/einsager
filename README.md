@@ -42,8 +42,7 @@ Download the file for your system from the
 | Windows, x64 | `einsager-<version>-windows-x64.zip` |
 | Linux, x64 | `einsager-<version>-linux-x64.tar.gz` |
 
-v0.1.0 has the macOS file only. The Windows and Linux files come with the next
-release. Until then, [build from source](#build-from-source) on those systems.
+v0.1.0 has the macOS file only. From v0.1.1, each release has all three files.
 
 The macOS build needs macOS 12 or later. The Linux build needs glibc 2.34 or
 later, for example Ubuntu 22.04 or Debian 12. For an Intel Mac or an ARM

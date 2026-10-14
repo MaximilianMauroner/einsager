@@ -35,7 +35,7 @@ without the leading `v`. Then paste the block into a Bash or Zsh terminal:
 
 ```sh
 sudo sh -eu <<'EOF'
-version=0.1.0
+version=0.1.1
 archive="einsager-$version-linux-x64.tar.gz"
 url="https://github.com/MaximilianMauroner/einsager/releases/download/v$version"
 
@@ -77,7 +77,7 @@ EOF
 Start einsager as your user. Use your version in the path:
 
 ```sh
-/opt/einsager/0.1.0/einsager-linux-x64/einsager
+/opt/einsager/0.1.1/einsager-linux-x64/einsager
 ```
 
 Do not start einsager with `sudo` or `--no-sandbox`. `sudo` runs the whole app
@@ -91,7 +91,7 @@ list comes from the same GitHub release over HTTPS.
 If the block stops, read the error. When the version folder already exists, the
 block checks the path and then stops without changing the folder: that version
 is installed, or an earlier attempt stopped. After this stop, remove an
-incomplete folder with `sudo rm -r /opt/einsager/0.1.0`, using your version,
+incomplete folder with `sudo rm -r /opt/einsager/0.1.1`, using your version,
 and try again. To update, run the block with the new version. It installs
 beside the old version, which you can then remove the same way.
 
