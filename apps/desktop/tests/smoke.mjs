@@ -26,6 +26,8 @@ await mkdir(codex);
 await mkdir(profile);
 await mkdir('.agents/artifacts', { recursive: true });
 let application;
+// The app's own output explains a failure that Playwright reports only as a timeout.
+const appOutput = [];
 try {
   application = await electron.launch({
     ...(packaged ? { executablePath } : {}),
@@ -33,6 +35,9 @@ try {
     // This exercises the conservative Wayland policy on Xvfb, not a real compositor.
     env: { ...process.env, CODEX_HOME: codex, ...(waylandPolicy ? { XDG_SESSION_TYPE: 'wayland', WAYLAND_DISPLAY: 'test-policy' } : {}) },
   });
+  for (const stream of [application.process().stdout, application.process().stderr]) {
+    stream?.on('data', chunk => appOutput.push(String(chunk)));
+  }
   const page = await application.firstWindow();
   const errors = [];
   page.on('pageerror', error => errors.push(error.message));
@@ -348,6 +353,9 @@ try {
   }
   assert.deepEqual(errors, []);
   console.log(`${evidence}: launch, recording, safe Copy/recovery, login error, Retry capability, tray panel state and settings, Codex folder reset, microphone choice and fallback, hidden idle pill, delayed Mac info, cancellation, and ${waylandPolicy ? 'compositor-owned placement with working resize' : 'docking at all four edges'} passed. No request sent.`);
+} catch (error) {
+  if (appOutput.length) console.error(`App output:\n${appOutput.join('')}`);
+  throw error;
 } finally {
   await application?.close();
   await rm(directory, { recursive: true, force: true });
