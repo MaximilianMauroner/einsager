@@ -1,0 +1,82 @@
+name: Linux install acceptance (diagnostic)
+
+# One-off check for PR #9 on a disposable runner. It runs the install block from docs/linux.md as written,
+# except that the two downloads copy a locally packaged archive. This branch is never merged.
+on:
+  push:
+    branches: [diagnostics/linux-install-acceptance-20261014]
+
+permissions:
+  contents: read
+
+jobs:
+  install:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    env:
+      CARGO_BUILD_JOBS: 1
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - uses: pnpm/action-setup@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm build
+      - run: pnpm package
+      - name: Archive like the Release workflow
+        run: |
+          mkdir -p "$RUNNER_TEMP/src"
+          cd release
+          chmod 755 einsager-linux-x64
+          tar -czf "$RUNNER_TEMP/src/einsager-0.1.0-linux-x64.tar.gz" einsager-linux-x64
+          cd "$RUNNER_TEMP/src" && sha256sum einsager-0.1.0-linux-x64.tar.gz > SHA256SUMS.txt && cat SHA256SUMS.txt
+      - name: Extract the documented install block
+        run: |
+          awk "/^sudo sh -eu <<'EOF'/{f=1;next} f&&/^EOF\$/{exit} f{print}" docs/linux.md > "$RUNNER_TEMP/block.sh"
+          test "$(grep -c '^curl ' "$RUNNER_TEMP/block.sh")" = 2
+          sed -i -E "s|^curl .* -o \"\\\$archive\" .*|cp $RUNNER_TEMP/src/\"\$archive\" .|; s|^curl .* -o SHA256SUMS.txt .*|cp $RUNNER_TEMP/src/SHA256SUMS.txt .|" "$RUNNER_TEMP/block.sh"
+          if grep -q '^curl ' "$RUNNER_TEMP/block.sh"; then exit 1; fi
+          cat "$RUNNER_TEMP/block.sh"
+      - name: Install as documented
+        run: sudo sh -eu "$RUNNER_TEMP/block.sh"
+      - name: Check ownership and permissions
+        run: |
+          app=/opt/einsager/0.1.0/einsager-linux-x64
+          stat -c '%U:%G %a %n' /opt /opt/einsager /opt/einsager/0.1.0 "$app" "$app/einsager" "$app/chrome-sandbox"
+          test "$(stat -c '%U:%G %a' "$app/chrome-sandbox")" = "root:root 4755"
+          test -z "$(find /opt/einsager ! -user root -print -quit)"
+          test -z "$(find /opt/einsager ! -type l -perm /022 -print -quit)"
+          test -z "$(ls /opt/einsager/0.1.0 | grep -v '^einsager-linux-x64$')"
+          if touch "$app/chrome-sandbox" 2>/dev/null; then echo "The user can change the helper" >&2; exit 1; fi
+          echo "Only root owns and can change the installation."
+      - name: Start as the user with the sandbox, under Ubuntu's user namespace restriction
+        run: |
+          sudo apt-get update -qq && sudo apt-get install -y -qq xvfb > /dev/null
+          sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=1 || echo "restriction unavailable on this kernel"
+          export CODEX_HOME="$(mktemp -d)"
+          xvfb-run -a /opt/einsager/0.1.0/einsager-linux-x64/einsager > "$RUNNER_TEMP/app.log" 2>&1 &
+          sleep 15
+          ps -eo user,args | grep '[e]insager-linux-x64/einsager' | cut -c1-200 | tee "$RUNNER_TEMP/ps.txt"
+          grep -q -- '--type=renderer' "$RUNNER_TEMP/ps.txt"
+          head -40 "$RUNNER_TEMP/app.log"
+          if grep -q -- '--no-sandbox' "$RUNNER_TEMP/ps.txt"; then echo "Sandbox is off" >&2; exit 1; fi
+          if grep -E '^root ' "$RUNNER_TEMP/ps.txt" | grep -vq chrome-sandbox; then echo "App runs as root" >&2; exit 1; fi
+          if grep -qi 'sandbox.*not configured correctly' "$RUNNER_TEMP/app.log"; then exit 1; fi
+          pkill -f einsager-linux-x64/einsager || true
+          echo "The app started as the user with the Chromium sandbox on."
+      - name: A second run stops and keeps the installation
+        run: |
+          before="$(sudo find /opt/einsager -printf '%p %U %m %s\n' | sort | sha256sum)"
+          if sudo sh -eu "$RUNNER_TEMP/block.sh"; then echo "The second run must stop" >&2; exit 1; fi
+          test "$(sudo find /opt/einsager -printf '%p %U %m %s\n' | sort | sha256sum)" = "$before"
+      - name: A changed archive stops before the helper gets setuid
+        run: |
+          sed 's/^version=0.1.0$/version=9.9.9/' "$RUNNER_TEMP/block.sh" > "$RUNNER_TEMP/tampered.sh"
+          cp "$RUNNER_TEMP/src/einsager-0.1.0-linux-x64.tar.gz" "$RUNNER_TEMP/src/einsager-9.9.9-linux-x64.tar.gz"
+          echo "corruption" >> "$RUNNER_TEMP/src/einsager-9.9.9-linux-x64.tar.gz"
+          (cd "$RUNNER_TEMP/src" && sha256sum einsager-0.1.0-linux-x64.tar.gz | sed 's/0\.1\.0/9.9.9/' > SHA256SUMS.txt && cat SHA256SUMS.txt)
+          if sudo sh -eu "$RUNNER_TEMP/tampered.sh"; then echo "A changed archive must stop the install" >&2; exit 1; fi
+          test -z "$(sudo find /opt/einsager/9.9.9 -name chrome-sandbox -print -quit)"
+          echo "The checksum stopped the changed archive before extraction."
