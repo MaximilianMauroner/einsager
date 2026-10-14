@@ -102,11 +102,12 @@ and what each platform supports.
   can change or stop working at any time.
 - Codex must keep the ChatGPT login in a file. A login in the system keychain
   does not work. See [Codex login](docs/usage.md#codex-login).
-- Automatic paste works on macOS and on Linux X11. On Windows and Wayland, the
-  transcript goes to the clipboard and you paste it.
+- Automatic paste works on macOS and on Linux X11. On Windows and Wayland, you
+  paste the transcript yourself.
 - On Wayland, the desktop places the pill, so you cannot drag or dock it.
-- macOS treats each unsigned version as a new app, so after an update you allow
-  Accessibility again. See [macOS permissions](docs/usage.md#macos-permissions).
+- The macOS app is not signed by Apple, so macOS treats each version as a new
+  app. After an update, remove einsager from the Accessibility list and add it
+  again. See [macOS permissions](docs/usage.md#macos-permissions).
 - There is no automatic update. Watch the
   [releases](https://github.com/MaximilianMauroner/einsager/releases) for new
   versions.
