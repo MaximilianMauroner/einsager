@@ -18,9 +18,9 @@ const evidence = waylandPolicy ? 'wayland-policy' : packaged ? 'packaged' : 'des
 const directory = await mkdtemp(join(tmpdir(), 'einsager-smoke-'));
 const profile = join(directory, 'profile');
 const codex = join(directory, 'empty-codex');
-// The app writes settings.json on the first change, so a poll can run before the file exists.
+// A poll can run before the app's first write, or on Windows while the app replaces the file. Both read as not saved yet.
 const savedSettings = () => readFile(join(profile, 'settings.json'), 'utf8').then(JSON.parse,
-  error => { if (error.code === 'ENOENT') return {}; throw error; });
+  error => { if (['ENOENT', 'EPERM', 'EBUSY'].includes(error.code)) return {}; throw error; });
 await mkdir(codex);
 // Inherited CODEX_HOME must also enable Reset, even without a folder chosen in settings.
 await mkdir(profile);
