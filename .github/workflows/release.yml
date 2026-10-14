@@ -18,6 +18,9 @@ permissions:
 env:
   TAG: ${{ inputs.tag || github.ref_name }}
 
+# A tag push and a manual run for the same tag must not upload at the same time.
+concurrency: release-${{ inputs.tag || github.ref_name }}
+
 jobs:
   version:
     name: Tag matches the app version
@@ -101,13 +104,19 @@ jobs:
           fi
           # The release exists, for example after a rerun or for a tag that had only some systems.
           # Keep its archives, upload the others, and list the checksums of all published archives.
-          # A release without archives has nothing to download. Upload without --clobber never replaces an archive.
+          # Upload without --clobber never replaces an archive.
           mkdir published
-          gh release download "$TAG" --pattern 'einsager-*' --dir published || true
+          names="$(gh release view "$TAG" --json assets --jq '.assets[].name')"
+          if grep -q '^einsager-' <<< "$names"; then
+            gh release download "$TAG" --pattern 'einsager-*' --dir published
+          fi
           missing=()
           for file in einsager-*; do
-            if [ -e "published/$file" ]; then cp "published/$file" "$file"; else missing+=("$file"); fi
+            if [ ! -e "published/$file" ]; then missing+=("$file"); fi
           done
-          if [ "${#missing[@]}" -gt 0 ]; then gh release upload "$TAG" "${missing[@]}"; fi
-          sha256sum einsager-* > SHA256SUMS.txt
+          if [ "${#missing[@]}" -gt 0 ]; then
+            gh release upload "$TAG" "${missing[@]}"
+            cp "${missing[@]}" published/
+          fi
+          (cd published && sha256sum einsager-*) > SHA256SUMS.txt
           gh release upload "$TAG" SHA256SUMS.txt --clobber

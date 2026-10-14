@@ -42,6 +42,11 @@ commit on each system. It uploads only the archives that the release does not
 have, never replaces one, and updates `SHA256SUMS.txt` to list every archive.
 The release stays published or draft, as it was.
 
+The tagged commit must build and pass the packaged-app smoke test on all three
+systems. If one system fails, the workflow uploads nothing. For example,
+v0.1.0 fails the Windows smoke test, so its missing systems come with a new
+version instead.
+
 ## Build a release by hand
 
 Use this when GitHub Actions is not available. On each system, from a clean
