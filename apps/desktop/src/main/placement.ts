@@ -17,6 +17,24 @@ export function dockFrame(size: { width: number; height: number }, area: Rectang
   return clampFrame({ ...positions[edge], width, height }, area);
 }
 
+/** The window calls that docking uses. */
+export interface DockWindow { getBounds(): Rectangle; setBounds(bounds: Rectangle): void }
+
+/**
+ * Docks the window at the requested size. The system can keep a small window larger than requested: Windows kept
+ * the 8 px handle's window 39 px high. The renderer keeps the pill on the docked side of a larger window, so dock
+ * again at the accepted size to keep the visible pill where dockFrame puts it. Windows reports the accepted size
+ * when setBounds returns. X11 reports the request until the window manager answers, so it gets no second call.
+ */
+export function dockWindow(window: DockWindow, size: { width: number; height: number }, area: Rectangle, edge: DockEdge, pillHeight: number) {
+  const requested = dockFrame(size, area, edge, pillHeight);
+  window.setBounds(requested);
+  const accepted = window.getBounds();
+  if (accepted.width !== requested.width || accepted.height !== requested.height) {
+    window.setBounds(dockFrame(accepted, area, edge, pillHeight));
+  }
+}
+
 /** Opens the tray panel next to its icon, on the side that faces the screen's center. */
 export function panelFrame(size: { width: number; height: number }, tray: Rectangle, area: Rectangle): Rectangle {
   const width = Math.min(size.width, area.width);

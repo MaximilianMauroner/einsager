@@ -1,13 +1,16 @@
 :root { color-scheme: dark; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; color: #fff; }
 * { box-sizing: border-box; }
 body { margin: 0; background: transparent; overflow: hidden; }
+/* The system can keep the window larger than the surface asks for, for example a minimum height on Windows. The
+   surface keeps its own size, which App measures, and sits on the docked side of the window, where main docks the pill. */
+#root { display: grid; height: 100vh; }
 button { font: inherit; cursor: pointer; }
 button:focus-visible, .pill:focus-visible { outline: 2px solid #f29be6; outline-offset: 2px; }
 button:disabled { opacity: .5; cursor: default; }
-.surface { display: flex; flex-direction: column; align-items: center; gap: 6px; width: max-content; max-width: 400px; user-select: none; }
-.surface.top { flex-direction: column-reverse; }
-.surface.left { align-items: flex-start; }
-.surface.right { align-items: flex-end; }
+.surface { display: flex; flex-direction: column; align-items: center; gap: 6px; width: max-content; max-width: 400px; user-select: none; align-self: end; justify-self: center; }
+.surface.top { flex-direction: column-reverse; align-self: start; }
+.surface.left { align-items: flex-start; justify-self: start; }
+.surface.right { align-items: flex-end; justify-self: end; }
 .label { display: flex; align-items: center; gap: 10px; max-width: 360px; padding: 8px 16px; min-height: 34px; border-radius: 20px; background: #000; font-size: 14px; text-align: center; }
 .label span { overflow-wrap: anywhere; line-height: 18px; }
 .label button { flex-shrink: 0; padding: 0; border: 0; background: none; color: #f29be6; font-weight: 600; }
