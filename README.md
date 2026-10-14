@@ -44,7 +44,7 @@ Download the file for your system from the
 
 v0.1.0 has the macOS file only. From v0.1.1, each release has all three files.
 
-The macOS build needs macOS 12 or later. The Linux build needs glibc 2.34 or
+The macOS build needs macOS 13 or later. The Linux build needs glibc 2.34 or
 later, for example Ubuntu 22.04 or Debian 12. For an Intel Mac or an ARM
 computer, [build from source](#build-from-source).
 `SHA256SUMS.txt` in the release lists the checksum of each file.
