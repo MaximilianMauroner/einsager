@@ -29,9 +29,6 @@ commands use the path as written. This install does not support systems that
 link `/opt`, for example Fedora Atomic desktops such as Silverblue, where
 `/opt` leads to `/var/opt`.
 
-v0.1.1 has no Linux file yet. It comes when the release workflow can run
-again. Until then, [build from source](../README.md#build-from-source).
-
 Set `version` to a version number from the
 [releases page](https://github.com/MaximilianMauroner/einsager/releases),
 without the leading `v`. Then paste the block into a Bash or Zsh terminal:
