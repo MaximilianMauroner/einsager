@@ -2,7 +2,7 @@
 // This uses Chromium's fake microphone and an empty Codex folder, never a real login.
 import { _electron as electron, expect } from '@playwright/test';
 import assert from 'node:assert/strict';
-import { mkdtemp, readFile, readdir, rm, mkdir } from 'node:fs/promises';
+import { mkdtemp, readFile, rm, mkdir } from 'node:fs/promises';
 import { homedir, tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 
@@ -31,64 +31,10 @@ try {
     env: { ...process.env, CODEX_HOME: codex, ...(waylandPolicy ? { XDG_SESSION_TYPE: 'wayland', WAYLAND_DISPLAY: 'test-policy' } : {}) },
   });
   const page = await application.firstWindow();
-  // Settings write failures appear only on the main process console. Keep them as failure evidence for issue #10.
-  await application.evaluate(() => {
-    const report = console.error.bind(console);
-    globalThis.testSettingsErrors = [];
-    console.error = (...args) => {
-      const [label, error] = args;
-      if (label === 'Could not save settings:') {
-        globalThis.testSettingsErrors.push({ code: error?.code, syscall: error?.syscall, message: String(error?.message ?? error) });
-      }
-      report(...args);
-    };
-  });
   const errors = [];
   page.on('pageerror', error => errors.push(error.message));
   await page.getByRole('button', { name: 'Start hands-free dictation' }).waitFor();
   await page.screenshot({ path: `.agents/artifacts/${evidence}-idle.png`, omitBackground: true });
-  // Side docking sizes differed in Windows CI (issue #10). Keep the last 16 pill geometry events in call order, as
-  // numbers, without changing them: each native bounds request with the bounds just before and after it and the size
-  // limits after it, and each pill size request. This listener runs after the production one, so a size request
-  // follows the bounds request that its handler made.
-  await application.evaluate(({ BrowserWindow, ipcMain }) => {
-    const geometry = globalThis.testGeometry = [];
-    const keep = entry => {
-      geometry.push(entry);
-      if (geometry.length > 16) geometry.shift();
-    };
-    // Copies only numeric fields. A failed read gives 'unavailable', so it cannot change the native call or its result.
-    const read = (get, keys) => {
-      try {
-        const value = get();
-        return Object.fromEntries(keys.map(key => {
-          const number = value?.[key];
-          return [key, typeof number === 'number' ? number : 'unavailable'];
-        }));
-      } catch {
-        return 'unavailable';
-      }
-    };
-    const rect = ['x', 'y', 'width', 'height'];
-    ipcMain.on('resize', (event, width, height, pillHeight) => {
-      if ([width, height, pillHeight].every(value => typeof value === 'number')) {
-        keep({ phase: 'resize after production handler', width, height, pillHeight });
-      }
-    });
-    const window = BrowserWindow.getAllWindows().find(window => window.webContents.getURL().endsWith('index.html'));
-    const setBounds = window.setBounds;
-    window.setBounds = function (bounds) {
-      const entry = { phase: 'setBounds', request: read(() => bounds, rect), before: read(() => window.getBounds(), rect) };
-      try {
-        return setBounds.apply(this, arguments);
-      } finally {
-        entry.after = read(() => window.getBounds(), rect);
-        entry.minimumSize = read(() => { const [width, height] = window.getMinimumSize(); return { width, height }; }, ['width', 'height']);
-        entry.maximumSize = read(() => { const [width, height] = window.getMaximumSize(); return { width, height }; }, ['width', 'height']);
-        keep(entry);
-      }
-    };
-  });
   await page.getByRole('button', { name: 'Start hands-free dictation' }).click();
   await page.getByRole('button', { name: 'Finish dictation' }).waitFor();
   await application.evaluate(({ BrowserWindow }) => {
@@ -141,25 +87,9 @@ try {
   await clickInPanel('[aria-label="Settings"]');
   await expect.poll(panelText).toContain('Clipboard after dictation');
   await inPanel(`[...document.querySelectorAll('.choice')].find(choice => choice.textContent.startsWith('Always')).click()`);
-  const historySwitch = () => inPanel(`document.querySelector('[role="switch"]').getAttribute('aria-checked')`);
-  const historySwitchBefore = await historySwitch();
-  // Windows sometimes keeps keepHistory true (issue #10). On failure, report what each side holds, reading only the test profile.
-  const historyEvidence = async () => ({
-    historySwitchBefore,
-    historySwitchAfter: await historySwitch(),
-    mainSettings: await inPanel('window.einsagerPanel.state().then(state => state.settings)'),
-    profile,
-    userData: await application.evaluate(({ app }) => app.getPath('userData')),
-    profileFiles: (await readdir(profile)).filter(name => name.startsWith('settings.json')),
-    settingsErrors: await application.evaluate(() => globalThis.testSettingsErrors),
-  });
   await clickInPanel('[role="switch"]');
   await expect.poll(async () => JSON.parse(await readFile(join(profile, 'settings.json'), 'utf8')))
-    .toMatchObject({ edge: 'bottom', clipboard: 'always', keepHistory: false })
-    .catch(async error => {
-      console.error('History persistence evidence:', await historyEvidence().catch(reason => `unavailable: ${reason}`));
-      throw error;
-    });
+    .toMatchObject({ edge: 'bottom', clipboard: 'always', keepHistory: false });
   const resetCodexFolder = `[...document.querySelectorAll('button')].find(button => button.textContent === 'Reset to default')`;
   assert.equal(await inPanel(`${resetCodexFolder}.disabled`), false, 'An inherited Codex folder can be reset');
   await inPanel(`${resetCodexFolder}.click()`);
@@ -328,20 +258,6 @@ try {
     };
     return { edge, surface, rect, viewport, bounds, content, area, point, deltas, delta: Math.max(...Object.values(deltas)) };
   };
-  const pillSizeEvidence = async sample => ({
-    sample,
-    main: await application.evaluate(({ BrowserWindow, screen }) => {
-      const window = BrowserWindow.getAllWindows().find(window => window.webContents.getURL().endsWith('index.html'));
-      const display = screen.getDisplayMatching(window.getBounds());
-      return {
-        contentBounds: window.getContentBounds(), minimumSize: window.getMinimumSize(),
-        workArea: display.workArea, scaleFactor: display.scaleFactor,
-        // One JSON line per event, because console output hides fields nested this deep.
-        geometry: globalThis.testGeometry.map(entry => JSON.stringify(entry)),
-      };
-    }),
-    renderer: await page.evaluate(() => ({ innerWidth, innerHeight, devicePixelRatio })),
-  });
   // Waits for the renderer's resize request to reach the native window, then returns the matching sample.
   // The sample is kept when its delta is returned, so the evidence shows the value that was compared last.
   const expectPill = async (state, edge) => {
@@ -349,8 +265,8 @@ try {
     await expect.poll(async () => {
       sample = { state, ...await pillSize(edge) };
       return sample.delta;
-    }).toBeLessThanOrEqual(1).catch(async error => {
-      console.error('Docking size evidence:', await pillSizeEvidence(sample).catch(reason => `unavailable: ${reason}`));
+    }).toBeLessThanOrEqual(1).catch(error => {
+      console.error('Docking size evidence:', JSON.stringify(sample));
       throw error;
     });
     return sample;
