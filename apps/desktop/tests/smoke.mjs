@@ -18,6 +18,9 @@ const evidence = waylandPolicy ? 'wayland-policy' : packaged ? 'packaged' : 'des
 const directory = await mkdtemp(join(tmpdir(), 'einsager-smoke-'));
 const profile = join(directory, 'profile');
 const codex = join(directory, 'empty-codex');
+// The app writes settings.json on the first change, so a poll can run before the file exists.
+const savedSettings = () => readFile(join(profile, 'settings.json'), 'utf8').then(JSON.parse,
+  error => { if (error.code === 'ENOENT') return {}; throw error; });
 await mkdir(codex);
 // Inherited CODEX_HOME must also enable Reset, even without a folder chosen in settings.
 await mkdir(profile);
@@ -88,12 +91,12 @@ try {
   await expect.poll(panelText).toContain('Clipboard after dictation');
   await inPanel(`[...document.querySelectorAll('.choice')].find(choice => choice.textContent.startsWith('Always')).click()`);
   await clickInPanel('[role="switch"]');
-  await expect.poll(async () => JSON.parse(await readFile(join(profile, 'settings.json'), 'utf8')))
+  await expect.poll(savedSettings)
     .toMatchObject({ edge: 'bottom', clipboard: 'always', keepHistory: false });
   const resetCodexFolder = `[...document.querySelectorAll('button')].find(button => button.textContent === 'Reset to default')`;
   assert.equal(await inPanel(`${resetCodexFolder}.disabled`), false, 'An inherited Codex folder can be reset');
   await inPanel(`${resetCodexFolder}.click()`);
-  await expect.poll(async () => JSON.parse(await readFile(join(profile, 'settings.json'), 'utf8')).codexHome)
+  await expect.poll(async () => (await savedSettings()).codexHome)
     .toBe(join(homedir(), '.codex'));
   // The panel keeps the platform's separator, for example ~\.codex on Windows.
   await expect.poll(() => inPanel('document.querySelector(".path").textContent')).toBe(join('~', '.codex'));
@@ -107,7 +110,7 @@ try {
     };
   }, codex);
   await clickInPanel('[aria-label^="Change the Codex login folder"]');
-  await expect.poll(async () => JSON.parse(await readFile(join(profile, 'settings.json'), 'utf8')).codexHome).toBe(codex);
+  await expect.poll(async () => (await savedSettings()).codexHome).toBe(codex);
   await expect.poll(() => inPanel(`${resetCodexFolder}.disabled`)).toBe(false);
   // The pill lists Chromium's fake inputs for Settings. Choose the last one, which is not the default.
   const microphoneSelect = `[...document.querySelectorAll('label.row')].find(row => row.textContent.startsWith('Microphone')).querySelector('select')`;
@@ -120,7 +123,7 @@ try {
     return value;
   })()`);
   assert.ok(microphone, 'A connected microphone has an id');
-  await expect.poll(async () => JSON.parse(await readFile(join(profile, 'settings.json'), 'utf8')).microphone).toBe(microphone);
+  await expect.poll(async () => (await savedSettings()).microphone).toBe(microphone);
   await clickInPanel('.back');
   await expect.poll(panelText).toContain('History is off.');
   await application.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()
