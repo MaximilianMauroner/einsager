@@ -72,17 +72,12 @@ einsager runs in the menu bar and has no Dock icon.
 
 ### Linux
 
-```sh
-tar -xzf einsager-*-linux-x64.tar.gz
-cd einsager-linux-x64
-# Chromium's sandbox helper must belong to root on most current distributions.
-sudo chown root:root chrome-sandbox
-sudo chmod 4755 chrome-sandbox
-./einsager
-```
+Install with the commands in [Linux setup](docs/linux.md#install). They
+download the release as root, check it against `SHA256SUMS.txt`, and install it
+in `/opt/einsager`, where only root can change Chromium's sandbox helper.
 
 Install `xdotool` for automatic paste on X11. See
-[Linux setup and limits](docs/linux.md) for the sandbox, Wayland, and tray.
+[Linux setup and limits](docs/linux.md) for Wayland and the tray.
 
 ## Use
 
