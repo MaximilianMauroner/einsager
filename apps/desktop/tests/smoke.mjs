@@ -242,9 +242,6 @@ try {
       x: content.x + rect.x + (edge === 'left' ? 0 : edge === 'right' ? rect.width : rect.width / 2),
       y: content.y + rect.y + (edge === 'top' ? 0 : edge === 'bottom' ? rect.height : rect.height / 2),
     };
-    // macOS keeps a window at least 24 points above the bottom of the work area, so there the pill can sit up to
-    // 12 points higher than asked. Seen on GitHub's runner and on a MacBook with a hidden Dock.
-    const bottomSlack = edge === 'bottom' && process.platform === 'darwin' ? 12 : 0;
     const target = {
       x: edge === 'left' ? area.x + 12 : edge === 'right' ? area.x + area.width - 12 : area.x + area.width / 2,
       y: edge === 'top' ? area.y + 12 : edge === 'bottom' ? area.y + area.height - 12 : area.y + area.height / 2,
@@ -254,7 +251,7 @@ try {
       size: Math.max(Math.abs(content.width - Math.max(Math.ceil(surface.width), collapsed?.width ?? 0)),
         Math.abs(content.height - Math.max(Math.ceil(surface.height), collapsed?.height ?? 0))),
       ...(edge && {
-        position: Math.max(Math.abs(point.x - target.x), Math.max(point.y - target.y, target.y - bottomSlack - point.y)),
+        position: Math.max(Math.abs(point.x - target.x), Math.abs(point.y - target.y)),
         outside: Math.max(0, area.x - bounds.x, area.y - bounds.y,
           bounds.x + bounds.width - area.x - area.width, bounds.y + bounds.height - area.y - area.height),
       }),
