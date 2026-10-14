@@ -2,15 +2,55 @@ name: Checks
 
 on:
   pull_request:
+    types: [opened, synchronize, reopened, ready_for_review, converted_to_draft]
   push:
     branches: [main]
+  workflow_dispatch:
 
 permissions:
   contents: read
 
+# Draft conversion must enter the same group to cancel an older desktop matrix.
+concurrency:
+  group: checks-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
 jobs:
+  source:
+    name: Source checks (draft)
+    if: github.event_name == 'pull_request' && github.event.pull_request.draft
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      CARGO_BUILD_JOBS: 1
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: pnpm
+          cache-dependency-path: |
+            pnpm-lock.yaml
+            package.json
+            pnpm-workspace.yaml
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
+        with:
+          shared-key: desktop-${{ runner.os }}-${{ runner.arch }}
+          cache-bin: false
+          save-if: false
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm check
+      - run: cargo fmt --check
+      - run: cargo test --locked -j 1
+      - run: cargo clippy --locked -j 1 --all-targets -- -D warnings
+
   desktop:
     name: Desktop (${{ matrix.os }})
+    if: github.event_name != 'pull_request' || !github.event.pull_request.draft
     strategy:
       fail-fast: false
       matrix:
@@ -21,13 +61,24 @@ jobs:
       CARGO_BUILD_JOBS: 1
     steps:
       - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
       - uses: actions/setup-node@v4
         with:
           node-version: '24'
-      - uses: pnpm/action-setup@v4
+          cache: pnpm
+          cache-dependency-path: |
+            pnpm-lock.yaml
+            package.json
+            pnpm-workspace.yaml
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: rustfmt, clippy
+      # The action also keys by rustc version/host, Cargo manifests/locks and config.
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
+        with:
+          shared-key: desktop-${{ runner.os }}-${{ runner.arch }}
+          cache-bin: false
+          save-if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
       - run: pnpm install --frozen-lockfile
       - run: pnpm check
       - run: cargo fmt --check
@@ -60,3 +111,4 @@ jobs:
           path: .agents/artifacts/
           if-no-files-found: ignore
           include-hidden-files: true
+          retention-days: 7
