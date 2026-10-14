@@ -1,0 +1,43 @@
+name: Bug report
+description: Something in einsager does not work as expected.
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Do not paste your Codex login, `auth.json`, or private transcripts. Report security problems privately, as SECURITY.md describes.
+  - type: input
+    id: version
+    attributes:
+      label: einsager version
+      description: The release, for example 0.1.0, or "source" and the commit.
+    validations:
+      required: true
+  - type: dropdown
+    id: system
+    attributes:
+      label: System
+      options:
+        - macOS
+        - Windows
+        - Linux X11
+        - Linux Wayland
+    validations:
+      required: true
+  - type: input
+    id: system-version
+    attributes:
+      label: System version
+      description: For example macOS 15.5, Windows 11 24H2, or Ubuntu 24.04 with GNOME.
+  - type: textarea
+    id: problem
+    attributes:
+      label: What happened
+      description: What you did, what you expected, and what happened instead. Add the steps that show the problem.
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Error text or screenshot
+      description: The message on the pill or in the tray panel, if there is one.
