@@ -196,8 +196,11 @@ try {
     'A late Mac paste-key response must leave the microphone running');
   await page.getByRole('button', { name: 'Cancel dictation' }).click();
   await expect.poll(() => page.evaluate(() => window.testMicrophoneStream.getAudioTracks()[0].readyState)).toBe('ended');
-  // Recording uses the microphone chosen in Settings.
-  await page.getByRole('button', { name: 'Start hands-free dictation' }).click();
+  // Recording uses the microphone chosen in Settings. These starts use the pill's keyboard path: a mouse click right
+  // after Cancel hovers the pill, its label grows the window upward, and the test's page-based pointer then lands
+  // on the label instead of the pill (CI runs 38533258647 and 38533262742).
+  const startWithKeyboard = () => page.getByRole('button', { name: 'Start hands-free dictation' }).press('Enter');
+  await startWithKeyboard();
   await page.getByRole('button', { name: 'Finish dictation' }).waitFor();
   assert.equal(await page.evaluate(() => window.testMicrophoneStream.getAudioTracks()[0].getSettings().deviceId), microphone,
     'Recording must use the microphone chosen in Settings');
@@ -208,7 +211,7 @@ try {
   await clickInPanel('[aria-label="Settings"]');
   await expect.poll(() => inPanel(`${microphoneSelect}.selectedOptions[0].textContent`)).toBe('Not connected, uses default');
   await clickInPanel('.back');
-  await page.getByRole('button', { name: 'Start hands-free dictation' }).click();
+  await startWithKeyboard();
   await page.getByRole('button', { name: 'Finish dictation' }).waitFor();
   assert.equal(await page.evaluate(() => window.testMicrophoneStream.getAudioTracks()[0].getSettings().deviceId), 'default');
   await page.getByRole('button', { name: 'Cancel dictation' }).click();
