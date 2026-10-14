@@ -4,7 +4,7 @@ import { homedir } from 'node:os';
 import { join, resolve, sep } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import type { DesktopAction, DesktopInfo, KeyboardState, Microphone, PanelState, SessionStatus, Settings, TranscriptResult } from '../shared/contract';
-import { clampFrame, dockFrame, nearestEdge } from './placement';
+import { clampFrame, dockWindow, nearestEdge } from './placement';
 import { TranscriptionSession } from './transcription';
 import { platformFor } from './platform';
 import { TranscriptDelivery } from './delivery';
@@ -44,6 +44,8 @@ let microphones: Microphone[] = [];
 let transcription: TranscriptionSession;
 let dragOrigin: Electron.Rectangle | undefined;
 let pillHeight = 8;
+/** The size the renderer last asked for. Docking at another edge can need a different window size. */
+let surfaceSize: { width: number; height: number } | undefined;
 let quitting = false;
 
 const rendererFile = (page: string) => join(__dirname, 'renderer', page);
@@ -51,10 +53,20 @@ const rendererURL = pathToFileURL(rendererFile('index.html')).href;
 const panelURL = pathToFileURL(rendererFile('panel.html')).href;
 
 function send(action: DesktopAction) { window.webContents.send('action', action); }
+/**
+ * On GitHub's macOS runner and on a MacBook, macOS kept the top of a window at least 32 points above the bottom of
+ * the work area. So a bottom-docked 8-point handle sat 12 points above where docking puts it, and the pill moved when
+ * it expanded. There the window keeps the expanded pill's height, and the renderer draws the handle at the bottom.
+ * Other edges keep the surface's size, because the transparent rest of the window blocks clicks to apps below it.
+ */
+function windowSize(size: { width: number; height: number }) {
+  return process.platform === 'darwin' && settings.edge === 'bottom' ? { ...size, height: Math.max(28, size.height) } : size;
+}
+
 function reposition() {
   if (linux?.canPositionWindow === false) return;
-  const display = screen.getDisplayMatching(window.getBounds());
-  window.setBounds(dockFrame(window.getBounds(), display.workArea, settings.edge, pillHeight));
+  const bounds = window.getBounds();
+  dockWindow(window, surfaceSize ? windowSize(surfaceSize) : bounds, screen.getDisplayMatching(bounds).workArea, settings.edge, pillHeight);
 }
 
 /** Keeps the in-memory settings when the write fails, for example on a full disk. The next successful save stores them all. */
@@ -280,18 +292,18 @@ function installIPC() {
     if (typeof width !== 'number' || typeof height !== 'number' || typeof measuredPillHeight !== 'number'
       || !Number.isFinite(width + height + measuredPillHeight)) return;
     pillHeight = Math.min(28, Math.max(8, measuredPillHeight));
-    const size = {
+    surfaceSize = {
       width: Math.round(Math.min(420, Math.max(40, width))),
       height: Math.round(Math.min(180, Math.max(8, height))),
     };
     if (linux?.canPositionWindow === false) {
       // setSize clamps to a non-resizable Linux window's previous minimum size.
-      window.setContentSize(size.width, size.height);
+      window.setContentSize(surfaceSize.width, surfaceSize.height);
       return;
     }
     const display = screen.getDisplayMatching(window.getBounds());
     // Apply size and position together; Linux may still report the previous size after setSize.
-    window.setBounds(dockFrame(size, display.workArea, settings.edge, pillHeight));
+    dockWindow(window, windowSize(surfaceSize), display.workArea, settings.edge, pillHeight);
   });
   ipcMain.on('drag', (event, dx: unknown, dy: unknown, finished: unknown) => {
     trusted(event);
