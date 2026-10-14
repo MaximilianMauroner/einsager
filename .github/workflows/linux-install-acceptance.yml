@@ -39,6 +39,19 @@ jobs:
           sed -i -E "s|^curl .* -o \"\\\$archive\" .*|cp $RUNNER_TEMP/src/\"\$archive\" .|; s|^curl .* -o SHA256SUMS.txt .*|cp $RUNNER_TEMP/src/SHA256SUMS.txt .|" "$RUNNER_TEMP/block.sh"
           if grep -q '^curl ' "$RUNNER_TEMP/block.sh"; then exit 1; fi
           cat "$RUNNER_TEMP/block.sh"
+      - name: The block refuses the runner's /opt, then accepts a distro-like /opt
+        run: |
+          stat -c 'runner image: %U:%G %a %n' /opt
+          if sudo sh -eu "$RUNNER_TEMP/block.sh" 2> "$RUNNER_TEMP/refusal.txt"; then
+            echo "The runner's /opt was safe, so the refusal path did not run."
+          else
+            cat "$RUNNER_TEMP/refusal.txt"
+            grep -q '^Unsafe owner or permissions: /opt$' "$RUNNER_TEMP/refusal.txt"
+            test ! -e /opt/einsager/0.1.0
+            # Ubuntu and Debian ship /opt as root:root 755.
+            sudo chown root:root /opt
+            sudo chmod 755 /opt
+          fi
       - name: Install as documented
         run: sudo sh -eu "$RUNNER_TEMP/block.sh"
       - name: Check ownership and permissions
