@@ -142,7 +142,21 @@ already selects Apple's Clang on macOS.
 | macOS shortcut logic | `pnpm test:macos` |
 | macOS bundle signature | `codesign --verify --deep --strict release/einsager-darwin-*/einsager.app` |
 
-CI runs all of these on Linux, macOS, and Windows in `.github/workflows/check.yml`.
+CI runs all of these on Linux, macOS, and Windows in `.github/workflows/check.yml`
+for non-draft PRs and pushes to `main`. Draft PRs run types, unit behavior and the
+Rust source checks on Linux. Marking a PR ready starts the desktop matrix;
+returning it to draft or pushing a new revision cancels its older Checks run.
+**Actions → Checks → Run workflow** runs the full matrix on the selected ref.
+Every path retains this coverage, including installation and release guides.
+A draft-skipped desktop job does not prove desktop acceptance.
+
+pnpm caches its store by OS, architecture and dependency files. GitHub scopes PR
+caches to the PR merge ref, so trusted branch and release jobs cannot restore
+them. Rust dependency caches also include the compiler version/host, Cargo
+manifests, lockfiles and configuration. Only successful `main` pushes save Rust
+caches; PRs and releases can restore them. Project binaries and signing data are
+not cached. Transient desktop smoke evidence expires after seven days; release
+archive retention is unchanged.
 
 Unit tests cover PCM/WAV output, the upload-size limit, docking and panel
 placement, process cancellation, Retry with retained audio, each clipboard mode

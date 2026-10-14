@@ -51,11 +51,21 @@ jobs:
       - uses: actions/checkout@v4
         with:
           ref: refs/tags/${{ env.TAG }}
+      - uses: pnpm/action-setup@v4
       - uses: actions/setup-node@v4
         with:
           node-version: '24'
-      - uses: pnpm/action-setup@v4
+          cache: pnpm
+          cache-dependency-path: |
+            pnpm-lock.yaml
+            package.json
+            pnpm-workspace.yaml
       - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
+        with:
+          shared-key: desktop-${{ runner.os }}-${{ runner.arch }}
+          cache-bin: false
+          save-if: false
       - run: pnpm install --frozen-lockfile
       - run: pnpm build
       - run: pnpm package
