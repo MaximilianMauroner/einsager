@@ -95,7 +95,8 @@ try {
   await inPanel(`${resetCodexFolder}.click()`);
   await expect.poll(async () => JSON.parse(await readFile(join(profile, 'settings.json'), 'utf8')).codexHome)
     .toBe(join(homedir(), '.codex'));
-  await expect.poll(() => inPanel('document.querySelector(".path").textContent')).toBe('~/.codex');
+  // The panel keeps the platform's separator, for example ~\.codex on Windows.
+  await expect.poll(() => inPanel('document.querySelector(".path").textContent')).toBe(join('~', '.codex'));
   await expect.poll(() => inPanel(`${resetCodexFolder}.disabled`)).toBe(true);
   // Restore the empty test login through the chooser before further recording checks.
   await application.evaluate(({ dialog }, codex) => {
@@ -195,8 +196,11 @@ try {
     'A late Mac paste-key response must leave the microphone running');
   await page.getByRole('button', { name: 'Cancel dictation' }).click();
   await expect.poll(() => page.evaluate(() => window.testMicrophoneStream.getAudioTracks()[0].readyState)).toBe('ended');
-  // Recording uses the microphone chosen in Settings.
-  await page.getByRole('button', { name: 'Start hands-free dictation' }).click();
+  // Recording uses the microphone chosen in Settings. These starts use the pill's keyboard path: a mouse click right
+  // after Cancel hovers the pill, its label grows the window upward, and the test's page-based pointer then lands
+  // on the label instead of the pill (CI runs 38533258647 and 38533262742).
+  const startWithKeyboard = () => page.getByRole('button', { name: 'Start hands-free dictation' }).press('Enter');
+  await startWithKeyboard();
   await page.getByRole('button', { name: 'Finish dictation' }).waitFor();
   assert.equal(await page.evaluate(() => window.testMicrophoneStream.getAudioTracks()[0].getSettings().deviceId), microphone,
     'Recording must use the microphone chosen in Settings');
@@ -207,21 +211,76 @@ try {
   await clickInPanel('[aria-label="Settings"]');
   await expect.poll(() => inPanel(`${microphoneSelect}.selectedOptions[0].textContent`)).toBe('Not connected, uses default');
   await clickInPanel('.back');
-  await page.getByRole('button', { name: 'Start hands-free dictation' }).click();
+  await startWithKeyboard();
   await page.getByRole('button', { name: 'Finish dictation' }).waitFor();
   assert.equal(await page.evaluate(() => window.testMicrophoneStream.getAudioTracks()[0].getSettings().deviceId), 'default');
   await page.getByRole('button', { name: 'Cancel dictation' }).click();
   await page.getByRole('button', { name: 'Start hands-free dictation' }).waitFor();
 
-  // Exercise renderer sizing, IPC placement, and side alignment together.
+  // Exercise renderer sizing, IPC placement, and docking together. The system can keep the pill window larger than the
+  // pill asks for: Windows kept the 8 point handle's window 39 points high. So these checks find the visible pill on
+  // screen, and compare the native size with the pill's own size, or with the collapsed window when that is larger.
   const pill = page.locator('.pill');
+  // The native client size of the collapsed pill, taken when it is first docked.
+  let collapsed;
+  // Samples the rendered pill and its native window. point is the part of the pill that docking holds still: its outer
+  // edge, and its center along the docked edge. delta is the largest of these differences, in points:
+  // - the renderer viewport against the native client area;
+  // - the native client size against the pill's own size, or against the collapsed size when that is larger;
+  // - with an edge, point against its target 12 points inside the work area, and any part of the window outside it.
+  const pillSize = async edge => {
+    const { surface, rect, viewport } = await page.evaluate(() => {
+      const box = selector => {
+        const { x, y, width, height } = document.querySelector(selector).getBoundingClientRect();
+        return { x, y, width, height };
+      };
+      return { surface: box('.surface'), rect: box('.pill'), viewport: { width: innerWidth, height: innerHeight } };
+    });
+    const { bounds, content, area } = await application.evaluate(({ BrowserWindow, screen }) => {
+      const window = BrowserWindow.getAllWindows().find(window => window.webContents.getURL().endsWith('index.html'));
+      const bounds = window.getBounds();
+      return { bounds, content: window.getContentBounds(), area: screen.getDisplayMatching(bounds).workArea };
+    });
+    const point = {
+      x: content.x + rect.x + (edge === 'left' ? 0 : edge === 'right' ? rect.width : rect.width / 2),
+      y: content.y + rect.y + (edge === 'top' ? 0 : edge === 'bottom' ? rect.height : rect.height / 2),
+    };
+    const target = {
+      x: edge === 'left' ? area.x + 12 : edge === 'right' ? area.x + area.width - 12 : area.x + area.width / 2,
+      y: edge === 'top' ? area.y + 12 : edge === 'bottom' ? area.y + area.height - 12 : area.y + area.height / 2,
+    };
+    // On macOS at the bottom edge, main keeps the window as high as the expanded pill (windowSize in main).
+    const macBottomHeight = process.platform === 'darwin' && edge === 'bottom' ? 28 : 0;
+    const deltas = {
+      viewport: Math.max(Math.abs(viewport.width - content.width), Math.abs(viewport.height - content.height)),
+      size: Math.max(Math.abs(content.width - Math.max(Math.ceil(surface.width), collapsed?.width ?? 0)),
+        Math.abs(content.height - Math.max(Math.ceil(surface.height), collapsed?.height ?? 0, macBottomHeight))),
+      ...(edge && {
+        position: Math.max(Math.abs(point.x - target.x), Math.abs(point.y - target.y)),
+        outside: Math.max(0, area.x - bounds.x, area.y - bounds.y,
+          bounds.x + bounds.width - area.x - area.width, bounds.y + bounds.height - area.y - area.height),
+      }),
+    };
+    return { edge, surface, rect, viewport, bounds, content, area, point, deltas, delta: Math.max(...Object.values(deltas)) };
+  };
+  // Waits for the renderer's resize request to reach the native window, then returns the matching sample.
+  // The sample is kept when its delta is returned, so the evidence shows the value that was compared last.
+  const expectPill = async (state, edge) => {
+    let sample;
+    await expect.poll(async () => {
+      sample = { state, ...await pillSize(edge) };
+      return sample.delta;
+    }).toBeLessThanOrEqual(1).catch(error => {
+      console.error('Docking size evidence:', JSON.stringify(sample));
+      throw error;
+    });
+    return sample;
+  };
+  const sendAction = action => application.evaluate(({ BrowserWindow }, action) => BrowserWindow.getAllWindows()
+    .find(window => window.webContents.getURL().endsWith('index.html')).webContents.send('action', action), action);
   if (waylandPolicy) {
     // Resizing must keep labels visible even when the compositor owns placement.
-    await expect.poll(async () => {
-      const surface = await page.locator('.surface').boundingBox();
-      const bounds = await application.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows().find(window => window.webContents.getURL().endsWith('index.html')).getBounds());
-      return Math.max(Math.abs(bounds.width - Math.ceil(surface.width)), Math.abs(bounds.height - Math.ceil(surface.height)));
-    }).toBeLessThanOrEqual(1);
+    await expectPill('compositor-owned placement');
     await application.evaluate(({ BrowserWindow }) => {
       const window = BrowserWindow.getAllWindows().find(window => window.webContents.getURL().endsWith('index.html'));
       globalThis.testBoundsCalls = 0;
@@ -231,43 +290,61 @@ try {
     await page.evaluate(async () => { window.einsager.drag(100, 100, true); await window.einsager.info(); });
     assert.equal(await application.evaluate(() => globalThis.testBoundsCalls), 0);
   }
-  for (const edge of waylandPolicy ? [] : ['left', 'right']) {
+  for (const edge of waylandPolicy ? [] : ['left', 'right', 'top', 'bottom']) {
     await pill.dispatchEvent('mouseout', { relatedTarget: null });
     await page.locator('.pill.handle').waitFor();
     const shift = await application.evaluate(({ BrowserWindow, screen }, edge) => {
       const bounds = BrowserWindow.getAllWindows().find(window => window.webContents.getURL().endsWith('index.html')).getBounds();
       const area = screen.getDisplayMatching(bounds).workArea;
+      // Drag to the middle of the top or bottom edge. The drag keeps the window in the work area.
+      if (edge === 'top' || edge === 'bottom') {
+        return { dx: area.x + (area.width - bounds.width) / 2 - bounds.x, dy: (edge === 'top' ? area.y : area.y + area.height) - bounds.y };
+      }
       const x = edge === 'left' ? area.x + 12 : area.x + area.width - bounds.width - 12;
       return { dx: x - bounds.x, dy: area.y + area.height / 2 - bounds.y };
     }, edge);
     await page.evaluate(({ dx, dy }) => window.einsager.drag(dx, dy, true), shift);
     await page.locator(`.surface.${edge}`).waitFor();
-    // Wait for the renderer's resize request to reach the native window before sampling it.
-    await expect.poll(async () => {
-      const surface = await page.locator('.surface').boundingBox();
-      assert.ok(surface);
-      const bounds = await application.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows().find(window => window.webContents.getURL().endsWith('index.html')).getBounds());
-      return Math.max(Math.abs(bounds.width - Math.ceil(surface.width)), Math.abs(bounds.height - Math.ceil(surface.height)));
-    }).toBeLessThanOrEqual(1);
-    const position = async () => {
-      const rect = await pill.boundingBox();
-      assert.ok(rect);
-      const bounds = await application.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows().find(window => window.webContents.getURL().endsWith('index.html')).getBounds());
-      return {
-        y: bounds.y + rect.y + rect.height / 2,
-        x: bounds.x + rect.x + (edge === 'right' ? rect.width : 0),
-      };
-    };
-    const idle = await position();
+    if (!collapsed) {
+      // Main has handled the handle's size request once it answers a later request on the same channel. The size
+      // request leaves after layout, so wait two frames first.
+      await page.evaluate(async () => {
+        await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+        await window.einsager.info();
+      });
+      collapsed = await application.evaluate(({ BrowserWindow }) => {
+        const { width, height } = BrowserWindow.getAllWindows().find(window => window.webContents.getURL().endsWith('index.html')).getContentBounds();
+        return { width, height };
+      });
+    }
+    // Each collapse after a label returns to the first collapsed size.
+    const idle = await expectPill('collapsed', edge);
+    assert.deepEqual([idle.rect.width, idle.rect.height, idle.surface.width, idle.surface.height], [40, 8, 40, 8],
+      'The collapsed pill is only the 40 x 8 handle');
     await pill.dispatchEvent('mouseover', { relatedTarget: null });
     await page.getByRole('status').waitFor();
     // Native bounds round to whole points; CSS label widths can be fractional.
-    await expect.poll(async () => Math.abs((await position()).y - idle.y)).toBeLessThanOrEqual(1);
-    await expect.poll(async () => Math.abs((await position()).x - idle.x)).toBeLessThanOrEqual(1);
+    await expect.poll(async () => Math.abs((await pillSize(edge)).point.y - idle.point.y)).toBeLessThanOrEqual(1);
+    await expect.poll(async () => Math.abs((await pillSize(edge)).point.x - idle.point.x)).toBeLessThanOrEqual(1);
+    const hover = await expectPill('hover', edge);
+    // A label is taller than the collapsed window, so the window must take the label and pill's own size.
+    assert.ok(Math.ceil(hover.surface.height) > collapsed.height,
+      `A label must make the pill taller than its collapsed window: ${hover.surface.height} against ${collapsed.height}`);
+    assert.equal(hover.rect.height, 28);
+    // Labels sit on the screen side of the pill: below it at the top edge, above it elsewhere.
+    const label = await page.getByRole('status').boundingBox();
+    assert.ok(edge === 'top' ? label.y >= hover.rect.y + hover.rect.height : label.y + label.height <= hover.rect.y,
+      'Labels sit on the screen side of the pill');
     await page.screenshot({ path: `.agents/artifacts/${evidence}-${edge}-hover.png`, omitBackground: true });
+    // Recording shows the 28 point pill with its controls and no label.
+    await sendAction('toggle');
+    await page.getByRole('button', { name: 'Finish dictation' }).waitFor();
+    assert.equal((await expectPill('recording', edge)).rect.height, 28);
+    await sendAction('cancel');
+    await page.getByRole('button', { name: 'Start hands-free dictation' }).waitFor();
   }
   assert.deepEqual(errors, []);
-  console.log(`${evidence}: launch, recording, safe Copy/recovery, login error, Retry capability, tray panel state and settings, Codex folder reset, microphone choice and fallback, hidden idle pill, delayed Mac info, cancellation, and ${waylandPolicy ? 'compositor-owned placement with working resize' : 'side docking'} passed. No request sent.`);
+  console.log(`${evidence}: launch, recording, safe Copy/recovery, login error, Retry capability, tray panel state and settings, Codex folder reset, microphone choice and fallback, hidden idle pill, delayed Mac info, cancellation, and ${waylandPolicy ? 'compositor-owned placement with working resize' : 'docking at all four edges'} passed. No request sent.`);
 } finally {
   await application?.close();
   await rm(directory, { recursive: true, force: true });

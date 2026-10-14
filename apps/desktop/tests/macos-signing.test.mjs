@@ -5,8 +5,13 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
 
-test('local app and helper updates retain their certificate identity and reject other signers',
-  { skip: process.platform !== 'darwin' }, async () => {
+// GitHub's macOS runners do not accept a self-signed identity that has no trust setting, and codesign reports
+// "no identity found" (issue #10). The test does not change certificate trust, so it runs only on developer Macs,
+// where `pnpm install:macos` uses this identity. CI still verifies the ad-hoc signature of the packaged release app.
+const skip = process.platform !== 'darwin' ? 'macOS only'
+  : process.env.GITHUB_ACTIONS === 'true' ? 'GitHub runners reject the self-signed identity (issue #10)' : false;
+
+test('local app and helper updates retain their certificate identity and reject other signers', { skip }, async () => {
     const directory = await mkdtemp(join(tmpdir(), 'einsager-signing-test-'));
     const signingDirectory = join(directory, 'signing');
     const keychain = join(signingDirectory, 'signing.keychain-db');
