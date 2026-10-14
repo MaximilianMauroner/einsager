@@ -28,15 +28,19 @@ You review the draft and publish it.
 5. Open the draft on GitHub. Edit the generated notes, download each archive,
    and start it on its system. Then click **Publish release**.
 
-If the workflow fails before it creates the draft, fix the problem on `main`,
-then move the tag:
+If a job fails for a reason outside the code, for example a network error,
+rerun the failed jobs. If the code must change, fix it on `main` and release a
+new patch version, for example `v0.2.1`. Do not move a tag that people may
+already have downloaded.
 
-```sh
-git push --delete origin v0.2.0
-git tag -d v0.2.0
-```
+## Add missing systems to a release
 
-Then tag again from step 3.
+A release can lack an archive, for example when it was built by hand on one
+system. To add the others, open **Actions → Release → Run workflow**, enter the
+existing tag, for example `v0.2.0`, and run it. The workflow builds the tagged
+commit on each system. It uploads only the archives that the release does not
+have, never replaces one, and updates `SHA256SUMS.txt` to list every archive.
+The release stays published or draft, as it was.
 
 ## Build a release by hand
 

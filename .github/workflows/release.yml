@@ -2,12 +2,21 @@ name: Release
 
 # Pushing a version tag such as v0.1.0 builds the app on each OS and drafts a GitHub release.
 # Publish the draft by hand after checking its notes and downloads.
+# Run it by hand with an existing tag to add the archives that its release lacks. It never replaces an archive.
 on:
   push:
     tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing version tag, for example v0.1.0
+        required: true
 
 permissions:
   contents: read
+
+env:
+  TAG: ${{ inputs.tag || github.ref_name }}
 
 jobs:
   version:
@@ -15,8 +24,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: refs/tags/${{ env.TAG }}
       - run: |
-          version="${GITHUB_REF_NAME#v}"
+          version="${TAG#v}"
           test "$(node -p "require('./package.json').version")" = "$version"
           grep -qx "version = \"$version\"" crates/transcription/Cargo.toml
 
@@ -35,6 +46,8 @@ jobs:
         shell: bash
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: refs/tags/${{ env.TAG }}
       - uses: actions/setup-node@v4
         with:
           node-version: '24'
@@ -47,7 +60,7 @@ jobs:
         run: ${{ runner.os == 'Linux' && 'xvfb-run -a ' || '' }}pnpm test:packaged
       - name: Archive
         run: |
-          version="${GITHUB_REF_NAME#v}"
+          version="${TAG#v}"
           arch="$(node -p process.arch)"
           folder="einsager-$(node -p process.platform)-$arch"
           cd release
@@ -65,7 +78,7 @@ jobs:
           if-no-files-found: error
 
   release:
-    name: Draft release
+    name: Draft release or add missing archives
     needs: package
     runs-on: ubuntu-latest
     permissions:
@@ -75,11 +88,26 @@ jobs:
         with:
           path: assets
           merge-multiple: true
-      - name: Create draft release
+      - name: Create the draft, or add the missing archives
         working-directory: assets
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
         run: |
-          sha256sum * > SHA256SUMS.txt
-          gh release create "$GITHUB_REF_NAME" * --draft --verify-tag --title "einsager $GITHUB_REF_NAME" --generate-notes
+          if ! gh release view "$TAG" > /dev/null 2>&1; then
+            sha256sum einsager-* > SHA256SUMS.txt
+            gh release create "$TAG" einsager-* SHA256SUMS.txt --draft --verify-tag --title "einsager $TAG" --generate-notes
+            exit 0
+          fi
+          # The release exists, for example after a rerun or for a tag that had only some systems.
+          # Keep its archives, upload the others, and list the checksums of all published archives.
+          # A release without archives has nothing to download. Upload without --clobber never replaces an archive.
+          mkdir published
+          gh release download "$TAG" --pattern 'einsager-*' --dir published || true
+          missing=()
+          for file in einsager-*; do
+            if [ -e "published/$file" ]; then cp "published/$file" "$file"; else missing+=("$file"); fi
+          done
+          if [ "${#missing[@]}" -gt 0 ]; then gh release upload "$TAG" "${missing[@]}"; fi
+          sha256sum einsager-* > SHA256SUMS.txt
+          gh release upload "$TAG" SHA256SUMS.txt --clobber
