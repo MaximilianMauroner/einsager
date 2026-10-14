@@ -23,7 +23,9 @@ button:disabled { opacity: .5; cursor: default; }
 .circle.finish { background: #fcfcfb; color: #1a1a1a; }
 .circle:hover { filter: brightness(.9); }
 .circle svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width: 1.5; stroke-linecap: round; stroke-linejoin: round; }
-.waveform { display: flex; align-items: center; gap: 2px; height: 16px; width: 40.5px; flex-shrink: 0; }
+/* The transcribing dots take the waveform's place and size, so releasing a held key does not resize the pill. */
+.waveform, .processing-dots { display: flex; align-items: center; height: 16px; width: 40.5px; flex-shrink: 0; }
+.waveform { gap: 2px; }
 .waveform i { width: 2.25px; flex-shrink: 0; border-radius: 2px; background: #ffffeb; }
-.processing-dots { display: flex; gap: 3px; margin-left: 6px; }
+.processing-dots { justify-content: center; gap: 3px; }
 .processing-dots i { width: 3px; height: 3px; border-radius: 50%; background: #e8e6f5; }

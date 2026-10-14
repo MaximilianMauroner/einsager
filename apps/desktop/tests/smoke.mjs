@@ -343,8 +343,58 @@ try {
     await sendAction('cancel');
     await page.getByRole('button', { name: 'Start hands-free dictation' }).waitFor();
   }
+
+  // Releasing a held key hands the recording to transcription. On macOS the keyboard helper sends these hold actions
+  // for Fn; here the test sends them. Transcription waits for the test, so each check sees the processing pill.
+  await application.evaluate(({ ipcMain }) => {
+    ipcMain.on('status', (event, value) => { globalThis.testStatuses?.push(value?.state); });
+    ipcMain.removeHandler('transcribe');
+    ipcMain.handle('transcribe', () => new Promise(resolve => { globalThis.completeTestTranscription = resolve; }));
+  });
+  const completeTranscription = result => application.evaluate((_, result) => globalThis.completeTestTranscription(result), result);
+  const transcribeHeld = async () => {
+    await application.evaluate(() => { globalThis.testStatuses = []; delete globalThis.completeTestTranscription; });
+    await sendAction('hold-pressed');
+    await page.getByRole('group', { name: 'recording' }).waitFor();
+    // Chromium's fake microphone beeps, so a held second has audio to send.
+    await page.waitForTimeout(1200);
+    const held = await pill.boundingBox();
+    assert.equal(held.height, 28);
+    assert.equal(await page.getByRole('button').count(), 0, 'Hold-to-talk records without buttons');
+    await sendAction('hold-released');
+    await page.getByRole('img', { name: 'Transcribing' }).waitFor();
+    // The request reaches main after the processing status, on the same channel.
+    await expect.poll(() => application.evaluate(() => typeof globalThis.completeTestTranscription)).toBe('function');
+    assert.deepEqual(await application.evaluate(() => globalThis.testStatuses), ['requesting', 'recording', 'processing'],
+      'Release goes from recording straight to processing');
+    assert.equal(await pill.locator('.waveform').count(), 0, 'The transcribing dots replace the waveform');
+    assert.equal(await page.getByRole('button').count(), 0, 'Transcription shows no idle or hands-free controls');
+    assert.deepEqual(await pill.boundingBox(), held, 'Transcription keeps the hold pill in place and at its size');
+    const offset = await page.evaluate(() => {
+      const center = element => { const { x, width } = element.getBoundingClientRect(); return x + width / 2; };
+      const dots = document.querySelectorAll('.processing-dots i');
+      return (center(dots[0]) + center(dots[dots.length - 1])) / 2 - center(document.querySelector('.pill'));
+    });
+    assert.ok(Math.abs(offset) <= 0.5, `The transcribing dots are centered in the pill: ${offset} points off`);
+  };
+  await transcribeHeld();
+  await page.screenshot({ path: `.agents/artifacts/${evidence}-transcribing.png`, omitBackground: true });
+  await completeTranscription({ text: 'Held transcript', delivery: 'pasted' });
+  await page.getByText('Paste shortcut sent.', { exact: true }).waitFor();
+  await transcribeHeld();
+  await completeTranscription({ error: 'Test transcription failed.', retryable: true });
+  await page.getByText('Test transcription failed.', { exact: true }).waitFor();
+  await expect(page.getByRole('button', { name: 'Retry', exact: true })).toBeEnabled();
+  // Cancel during transcription returns to idle, and a transcript that arrives later is dropped.
+  await transcribeHeld();
+  await sendAction('cancel');
+  await page.getByRole('button', { name: 'Start hands-free dictation' }).waitFor();
+  await completeTranscription({ text: 'Late transcript', delivery: 'pasted-and-copied' });
+  await page.waitForTimeout(100);
+  assert.equal(await page.getByText('Text is also copied.', { exact: false }).count(), 0, 'A transcript after Cancel is not shown');
+
   assert.deepEqual(errors, []);
-  console.log(`${evidence}: launch, recording, safe Copy/recovery, login error, Retry capability, tray panel state and settings, Codex folder reset, microphone choice and fallback, hidden idle pill, delayed Mac info, cancellation, and ${waylandPolicy ? 'compositor-owned placement with working resize' : 'docking at all four edges'} passed. No request sent.`);
+  console.log(`${evidence}: launch, recording, safe Copy/recovery, login error, Retry capability, tray panel state and settings, Codex folder reset, microphone choice and fallback, hidden idle pill, delayed Mac info, cancellation, hold-to-talk handoff to transcription, and ${waylandPolicy ? 'compositor-owned placement with working resize' : 'docking at all four edges'} passed. No request sent.`);
 } finally {
   await application?.close();
   await rm(directory, { recursive: true, force: true });
