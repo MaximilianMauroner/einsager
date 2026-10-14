@@ -249,10 +249,12 @@ try {
       x: edge === 'left' ? area.x + 12 : edge === 'right' ? area.x + area.width - 12 : area.x + area.width / 2,
       y: edge === 'top' ? area.y + 12 : edge === 'bottom' ? area.y + area.height - 12 : area.y + area.height / 2,
     };
+    // On macOS at the bottom edge, main keeps the window as high as the expanded pill (windowSize in main).
+    const macBottomHeight = process.platform === 'darwin' && edge === 'bottom' ? 28 : 0;
     const deltas = {
       viewport: Math.max(Math.abs(viewport.width - content.width), Math.abs(viewport.height - content.height)),
       size: Math.max(Math.abs(content.width - Math.max(Math.ceil(surface.width), collapsed?.width ?? 0)),
-        Math.abs(content.height - Math.max(Math.ceil(surface.height), collapsed?.height ?? 0))),
+        Math.abs(content.height - Math.max(Math.ceil(surface.height), collapsed?.height ?? 0, macBottomHeight))),
       ...(edge && {
         position: Math.max(Math.abs(point.x - target.x), Math.abs(point.y - target.y)),
         outside: Math.max(0, area.x - bounds.x, area.y - bounds.y,

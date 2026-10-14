@@ -40,8 +40,8 @@ jobs:
         run: sudo apt-get update && sudo apt-get install -y xdotool
       - name: Desktop smoke test (Linux)
         if: runner.os == 'Linux'
-        # One X server for all three. A second xvfb-run right after the first sometimes left the packaged app
-        # without a window (runs 38530716881 and 38534121008), while the first run never failed that way.
+        # One X server for all three. With one xvfb-run each, the packaged app, always started second, sometimes
+        # got no window (runs 38530716881 and 38534121008). The cause is not proven; one server removes that difference.
         run: xvfb-run -a sh -c 'pnpm test:desktop && pnpm test:packaged && pnpm test:linux'
       - name: Desktop smoke test (macOS and Windows)
         if: runner.os != 'Linux'
