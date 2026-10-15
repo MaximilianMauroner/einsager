@@ -5,6 +5,11 @@ import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { platformFor } from '../src/main/platform.ts';
 import { signMacApp } from './macos-signing.mjs';
+import { packageNative } from './native-macos.mjs';
+
+if (process.platform === 'darwin' && !process.argv.includes('--electron')) {
+  await packageNative();
+} else {
 
 const platform = platformFor(process.platform);
 const helpers = [platform.helperExecutable, platform.keyboardHelper].filter(name => name !== undefined).map(name => resolve('target/release', name));
@@ -24,7 +29,7 @@ try {
   const icon = process.platform === 'darwin' ? join(staging, 'einsager.icns') : undefined;
   if (icon) execFileSync('swift', ['-j', '1', 'apps/desktop/scripts/make-app-icon.swift', icon], { stdio: 'inherit' });
   const outputs = await packager({
-    dir: source, name: 'einsager', out: resolve('release'), overwrite: true,
+    dir: source, name: 'einsager', out: resolve('release', process.platform === 'darwin' ? 'electron' : '.'), overwrite: true,
     platform: process.platform, arch: process.arch, electronVersion: metadata.devDependencies.electron,
     prune: false, extraResource: helpers, icon,
     appBundleId: 'local.max.einsager.desktop',
@@ -37,4 +42,5 @@ try {
   console.log(outputs);
 } finally {
   await rm(staging, { recursive: true, force: true });
+}
 }

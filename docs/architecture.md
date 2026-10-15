@@ -1,8 +1,9 @@
 # Architecture
 
-einsager is one Electron app with a Rust transcription helper. Start in
-`apps/desktop/` for a UI or desktop change, or in `crates/transcription/` for a
-login or upload change.
+einsager uses a native AppKit host on macOS and an Electron host on Windows
+and Linux. Both call the same Rust transcription helper. Start in
+`apps/desktop/native/macos/` for macOS, `apps/desktop/src/` for Electron, or
+`crates/transcription/` for login and upload changes.
 
 ## Source map
 
@@ -13,7 +14,7 @@ login or upload change.
 | [`apps/desktop/src/renderer/`](../apps/desktop/src/renderer/) | TypeScript, React, Chromium | All | Pill and tray panel UI, visible session, microphone capture, WAV encoding |
 | [`apps/desktop/src/preload.ts`](../apps/desktop/src/preload.ts), [`panel-preload.ts`](../apps/desktop/src/panel-preload.ts) | TypeScript, sandboxed preloads | All | Narrow bridges from the pill and the tray panel to the main process |
 | [`apps/desktop/src/shared/`](../apps/desktop/src/shared/) | TypeScript | All | Bridge contract, result types, and shortcut parsing; no privileged code |
-| [`apps/desktop/native/macos/`](../apps/desktop/native/macos/) | Swift, Carbon event tap, Accessibility | macOS | Fn and custom shortcuts, and paste into the focused text field, in a child process |
+| [`apps/desktop/native/macos/`](../apps/desktop/native/macos/) | Swift, AppKit, AudioQueue, Carbon, Accessibility | macOS | Native host, pill, panel, recording, shortcuts, clipboard, and helper lifecycle |
 | [`apps/desktop/scripts/`](../apps/desktop/scripts/) | Node.js, Swift | All | Build, package, and the macOS app icon |
 | [`apps/desktop/tests/`](../apps/desktop/tests/) | Node test runner, Playwright | All | Unit tests and desktop smoke tests |
 | [`crates/transcription/`](../crates/transcription/) | Rust executable | All | Codex login discovery, audio validation, ChatGPT upload, JSON output |
@@ -45,7 +46,7 @@ navigation. Each preload exposes only the typed operations in
 before they do privileged work. Main code does not import React or renderer
 code. Paths in this section are relative to `apps/desktop/`.
 
-`src/main/transcription.ts` owns one temporary WAV and one helper process.
+In Electron, `src/main/transcription.ts` owns one temporary WAV and one helper process.
 Session generations reject results that arrive after a cancel or a newer
 recording. The Rust helper reads credentials in its own process; no window
 receives them. Its JSON output and WAV input are its contract with the host.
@@ -59,7 +60,7 @@ provide targets: `src/main/linux/desktop.ts` with xdotool on X11, and
 frontmost app and its focused Accessibility element before it posts ⌘V. The
 renderer never receives window IDs.
 
-On macOS, Electron cannot see Fn or key releases. `native/macos/KeyboardHelper.swift`
+In the macOS Electron fallback, Electron cannot see Fn or key releases. `native/macos/KeyboardHelper.swift`
 runs the shortcut logic in `KeyboardShortcuts.swift` in an event tap and stores
 custom shortcuts in its own `local.max.einsager.keys` defaults. It needs
 Accessibility access; without it, the Electron fallback shortcut works and the
@@ -102,12 +103,78 @@ Electron provides the other window, clipboard, shortcut, and permission APIs.
 The Linux adapter detects X11 or Wayland and optional `xdotool`; the host uses
 its capabilities to turn off placement under Wayland. See [Linux](linux.md).
 
-## Why Electron
+## Desktop runtimes
 
-Electron gives one recording and UI path on all three systems and reuses the
-Rust helper. The cost is a larger download and more memory. Tauri would use less
-memory, but it needs a separate webview and audio integration per system and
-extra Linux build libraries.
+Electron provides the Windows and Linux recording and UI path. Its fixed
+Chromium and Node memory cost cannot meet the macOS background target of
+30 MB. macOS therefore uses AppKit with no
+Chromium, WebKit, or SwiftUI runtime. This requires a separate macOS host;
+the transcription protocol and stored data formats remain shared.
+
+The native host has these owners:
+
+| File | Responsibility |
+|---|---|
+| `NativeApp.swift` | Startup, one instance per profile, service composition, input-device changes |
+| `NativeSession.swift` | Session phase, hold gestures, permission and stale-result guards |
+| `NativeAudio.swift` | Three fixed input buffers, streamed private WAV, meter, 10-minute limit, streamed voiceprint |
+| `NativeTranscription.swift` | One helper process, timeout, cancellation, Retry, temporary-file cleanup |
+| `NativeDelivery.swift` | Checked paste, all clipboard types, guarded restoration |
+| `NativeStore.swift` | Existing settings and history formats, private atomic writes, 500-entry limit |
+| `NativeHotKeys.swift` | Carbon fallback shortcut and active-session Escape without Accessibility |
+| `KeyboardMonitor.swift`, `KeyboardShortcuts.swift` | Fn, custom shortcuts, focused-field capture and paste |
+| `NativePill.swift`, `NativeUI.swift` | Views and actions; no audio or helper ownership |
+| `NativeStyle.swift` | Shared native color, type, icon, and control primitives matching the React UI |
+
+AudioQueue converts input to 16 kHz mono PCM. Each callback writes to disk;
+recording duration does not grow a retained audio buffer. After stop, the
+voiceprint reader uses a fixed 16 KB buffer. The Rust helper streams the
+opened audio file into the multipart upload and caps reads at the validated
+file length. Credentials remain inside that helper.
+
+The macOS UI follows the existing `panel.css` and `style.css` design. Small
+`NSControl` subclasses draw buttons, switches, and radio choices. System button
+renderers on recent macOS versions add SwiftUI hosting trees and a larger
+footprint. History uses cached full-paragraph heights and reusable table cells.
+Read-only TextKit views keep transcripts selectable without a shared field
+editor changing the layout. They disable writing tools and text completion.
+Accessibility uses lightweight model rows for both the modern getters and
+the public ranged array methods. Full hierarchy clients use the ranged path;
+AppKit's default implementation creates offscreen text views through mock cells.
+
+### Staged macOS fallback
+
+The Electron macOS host and JSON-lines keyboard adapter remain available for
+the transition. `pnpm start --electron` runs it; packaging with
+`node apps/desktop/scripts/package.mjs --electron` writes under
+`release/electron/`. Remove this macOS path after Max accepts the native
+microphone, Fn gestures, paste, tray, and docking behavior. Windows and Linux
+continue to use Electron. The native keyboard monitor and shortcut logic
+remain after the adapter is removed.
+
+The native host reads the existing macOS profile and shortcut defaults. It
+preserves unknown settings. The Electron fallback also keeps the original
+stored fields in its main process and merges validated settings into them on
+save. These extra fields never become panel-editable. `nativeMicrophone` stores
+a Core Audio UID; `microphone` remains the Chromium device ID for the fallback. The separate
+namespaces are required while both hosts can read this stored profile.
+
+Both macOS hosts take an exclusive `flock` on the profile's `.instance.lock`
+before reading settings or history. Electron holds it through a separate
+`einsager-keys --profile-lock <directory>` process. This mode starts no keyboard
+monitor and exits when its stdin closes. A missing, busy, or failed lock helper
+stops Electron before it loads the profile. Losing ownership after startup exits
+without flushing queued writes. Normal quit keeps the lock until startup,
+clipboard restoration, transcription cleanup, and profile writes settle.
+Kernel ownership ends when either host dies; the lock file is never removed.
+
+On macOS, `pnpm start` packages the compiled binaries and launches the bundle
+through Launch Services. This gives microphone requests the app's own usage
+description and identity. It quits an existing einsager instance before
+replacing build output. Interrupting the development command asks einsager
+to quit by bundle ID; the installed copy shares this ID.
+
+See [memory verification](memory.md) for measurements and test boundaries.
 
 ## CPU architectures and build outputs
 
@@ -118,7 +185,7 @@ binaries, so build on each system and CPU you want to ship.
 | Component | Command from the repository root | Output |
 |---|---|---|
 | Transcription helper | `cargo build --locked --release -j 1` | `target/release/einsager-transcribe` (`.exe` on Windows) |
-| App and helpers | `pnpm build` | Helpers plus `apps/desktop/dist/` |
+| App and helpers | `pnpm build` | Helpers plus `apps/desktop/dist/`; macOS also builds `target/release/einsager` |
 | Runnable app | `pnpm package` | `release/einsager-<Electron OS>-<CPU>/` |
 
 Electron calls an Intel/AMD 64-bit CPU `x64` and Apple silicon `arm64`. The
@@ -140,6 +207,7 @@ already selects Apple's Clang on macOS.
 | Packaged app | `pnpm test:packaged` after `pnpm package` |
 | Linux paste and Wayland policy | `xvfb-run -a pnpm test:linux`, with xdotool installed |
 | macOS shortcut logic | `pnpm test:macos` |
+| Native macOS logic and memory | `pnpm test:native` |
 | macOS bundle signature | `codesign --verify --deep --strict release/einsager-darwin-*/einsager.app` |
 
 CI runs all of these on Linux, macOS, and Windows in `.github/workflows/check.yml`
@@ -164,7 +232,7 @@ and its restore guard, history storage and limits, settings validation, Linux
 capability and focus cases, and the macOS paste protocol with a fake helper.
 Rust tests use fixture credentials and a local test server.
 
-The smoke tests use Chromium's fake microphone and an empty Codex folder, so they
+The Electron smoke tests use Chromium's fake microphone and an empty Codex folder, so they
 send no transcription request. They drive recording, the missing-login error,
 Retry, cancel, Copy, the tray panel and its settings, microphone choice, and side
 docking, in both the source and the packaged app. The Linux test sends targeted
@@ -175,3 +243,12 @@ Linux sandbox check, so it does not catch a misconfigured `chrome-sandbox`.
 Real microphones, Fn gestures, macOS paste, compositor behavior, and insertion in
 daily-use apps need a person on the target system. Builds and automated tests do
 not prove them.
+
+On macOS, the packaged check uses the native test binary: synthetic PCM,
+private pasteboards, hidden AppKit views, and an isolated production launch.
+It records memory without taking focus or using a real microphone. Its hidden
+integration process has a 50 MB regression ceiling; the production background
+target is 30 MB and also needs a settled measurement after live use.
+The test driver is compiled with `NATIVE_TESTS` and is absent from the shipped
+binary. The shipped app accepts a helper override only together with a
+separate profile, and that isolated mode installs no global input handlers.

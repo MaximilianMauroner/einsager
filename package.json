@@ -12,7 +12,7 @@
     "postinstall": "install-electron",
     "build": "cargo build --locked --release -j 1 && node apps/desktop/scripts/build.mjs",
     "build:ui": "node apps/desktop/scripts/build.mjs",
-    "start": "electron .",
+    "start": "node apps/desktop/scripts/start.mjs",
     "check": "tsc --noEmit && node --test apps/desktop/tests/*.test.ts apps/desktop/tests/*.test.mjs",
     "package": "node apps/desktop/scripts/package.mjs",
     "install:macos": "node apps/desktop/scripts/install-macos.mjs",
@@ -20,6 +20,7 @@
     "test:desktop": "node apps/desktop/tests/smoke.mjs",
     "test:packaged": "node apps/desktop/tests/smoke.mjs --packaged",
     "test:linux": "node apps/desktop/tests/linux-desktop.mjs && node apps/desktop/tests/smoke.mjs --wayland-policy",
+    "test:native": "node apps/desktop/tests/native-macos.mjs",
     "test:macos": "mkdir -p target/tests && swiftc -j 1 apps/desktop/native/macos/KeyboardShortcuts.swift apps/desktop/native/macos/tests/ShortcutTests.swift -o target/tests/shortcut-tests -framework AppKit && target/tests/shortcut-tests"
   },
   "dependencies": {

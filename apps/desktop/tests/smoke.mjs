@@ -7,6 +7,10 @@ import { homedir, tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 
 const packaged = process.argv.includes('--packaged');
+if (packaged && process.platform === 'darwin') {
+  await import('./native-macos.mjs');
+  process.exit(0);
+}
 const waylandPolicy = process.argv.includes('--wayland-policy');
 if (waylandPolicy) assert.equal(process.platform, 'linux');
 const bundle = resolve(`release/einsager-${process.platform}-${process.arch}`);

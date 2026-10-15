@@ -11,10 +11,11 @@ import { TranscriptDelivery } from './delivery';
 import { systemClipboard } from './system-clipboard';
 import { LinuxDesktop } from './linux/desktop';
 import { describeRecording, TranscriptHistory, type Recording } from './history';
-import { codexLoginFolders, defaultSettings, mergeSettings, parseStoredSettings } from './settings';
+import { codexLoginFolders, defaultSettings, mergeSettings, parseStoredSettings, serializeStoredSettings } from './settings';
 import { TrayPanel } from './panel';
 import { PrivateFile } from './private-file';
 import { MacKeyboard } from './keyboard';
+import { ProfileLock } from './profile-lock';
 
 const platform = platformFor(process.platform);
 const linux = process.platform === 'linux' ? new LinuxDesktop() : undefined;
@@ -27,6 +28,7 @@ let window: BrowserWindow;
 let panel: TrayPanel;
 let tray: Tray;
 let settings: Settings = defaultSettings;
+let storedSettings: unknown;
 let status: SessionStatus = { state: 'idle' };
 let history: TranscriptHistory;
 let settingsFile: PrivateFile;
@@ -47,6 +49,8 @@ let pillHeight = 8;
 /** The size the renderer last asked for. Docking at another edge can need a different window size. */
 let surfaceSize: { width: number; height: number } | undefined;
 let quitting = false;
+let quitReady = false;
+let startup: Promise<void> | undefined;
 
 const rendererFile = (page: string) => join(__dirname, 'renderer', page);
 const rendererURL = pathToFileURL(rendererFile('index.html')).href;
@@ -71,7 +75,8 @@ function reposition() {
 
 /** Keeps the in-memory settings when the write fails, for example on a full disk. The next successful save stores them all. */
 async function saveSettings() {
-  try { await settingsFile.write(JSON.stringify(settings)); }
+  if (quitting) return;
+  try { await settingsFile.write(serializeStoredSettings(storedSettings, settings)); }
   catch (error) { console.error('Could not save settings:', error); }
 }
 
@@ -86,6 +91,7 @@ async function chooseCodexHome() {
 async function setCodexHome(codexHome: string | undefined) {
   delivery.cancel();
   await transcription.cancel();
+  if (quitting) return;
   send('cancel');
   settings = { ...settings, codexHome };
   createTranscription();
@@ -126,6 +132,11 @@ async function askForAccess(keyboardStarted: Promise<void> | undefined) {
 }
 
 const helperFile = (name: string) => app.isPackaged ? join(process.resourcesPath, name) : resolve('target/release', name);
+const profileLock = process.platform === 'darwin' ? new ProfileLock(helperFile('einsager-keys'), error => {
+  // Ownership is gone. Exit without starting the normal queued-write cleanup.
+  console.error(error);
+  app.exit(1);
+}) : undefined;
 
 function createTranscription() {
   // Keep credentials inside the helper. The renderer never reads the login or receives tokens.
@@ -213,7 +224,7 @@ function setEdge(edge: Settings['edge']) {
 
 async function deliver(result: TranscriptResult, revision: number) {
   const delivered = await delivery.deliver(result, revision, settings.clipboard);
-  if ('text' in delivered && delivered.text.trim() && settings.keepHistory) {
+  if (!quitting && 'text' in delivered && delivered.text.trim() && settings.keepHistory) {
     await history.add(delivered.text, recording);
   }
   publish();
@@ -335,6 +346,7 @@ function installIPC() {
   });
   ipcMain.handle('panel:remove', async (event, id: unknown) => {
     fromPanel(event);
+    if (quitting) return;
     const entry = history.entries.find(item => item.id === id);
     if (!entry) return;
     await history.remove(entry.id);
@@ -343,6 +355,7 @@ function installIPC() {
   });
   ipcMain.handle('panel:clear', async event => {
     fromPanel(event);
+    if (quitting) return;
     await history.clear();
     delivery.forget();
     publish();
@@ -388,13 +401,21 @@ function installIPC() {
 }
 
 async function start() {
+  await profileLock?.acquire(app.getPath('userData'));
+  if (quitting) return;
   settingsFile = new PrivateFile(join(app.getPath('userData'), 'settings.json'));
-  try { settings = parseStoredSettings(JSON.parse(await settingsFile.read())); }
+  try {
+    storedSettings = JSON.parse(await settingsFile.read());
+    settings = parseStoredSettings(storedSettings);
+  }
   catch { /* First launch or invalid settings uses defaults. */ }
+  if (quitting) return;
   history = new TranscriptHistory(join(app.getPath('userData'), 'history.json'));
   await history.load();
+  if (quitting) return;
   createTranscription();
   await linux?.initialize();
+  if (quitting) return;
   app.dock?.hide();
   session.defaultSession.setPermissionRequestHandler((contents, permission, callback) => {
     callback(contents === window?.webContents && contents.getURL() === rendererURL && permission === 'media');
@@ -422,6 +443,7 @@ async function start() {
   });
   // The 44 px asset is drawn for 2x screens. At 1x it would be twice the menu bar's height.
   const icon = nativeImage.createFromBuffer(await readFile(join(__dirname, 'tray.png')), { scaleFactor: 2 });
+  if (quitting) return;
   icon.setTemplateImage(platform.templateTrayIcon);
   tray = new Tray(icon);
   tray.setToolTip('einsager');
@@ -443,9 +465,11 @@ async function start() {
     keyboardStarted = keyboard.start();
   }
   await window.loadFile(rendererFile('index.html'));
+  if (quitting) return;
   reposition();
   updatePill();
   await panel.window.loadFile(rendererFile('panel.html'));
+  if (quitting) return;
   screen.on('display-removed', reposition);
   screen.on('display-metrics-changed', reposition);
   // Automated runs fake Chromium's permission questions, so they skip the system ones too.
@@ -459,16 +483,21 @@ else {
   // Launching einsager again opens the panel once startup has made it; the pill keeps its idle setting.
   app.on('second-instance', () => { if (tray) openPanel(); });
   app.on('before-quit', event => {
-    if (quitting) return;
+    if (quitReady) return;
     event.preventDefault();
+    if (quitting) return;
     quitting = true;
     delivery.cancel();
-    if (app.isReady()) globalShortcut.unregisterAll();
-    keyboard?.stop();
     // A paste's pending restore runs now, so quitting gives the earlier clipboard back, and queued
-    // settings and history writes finish. Quitting before startup completes has no session or files yet.
-    void Promise.all([delivery.restoreNow(), transcription?.cancel(), settingsFile?.settled(), history?.settled()])
-      .finally(() => app.quit());
+    // settings and history writes finish. Startup must settle before ownership can be released.
+    void (async () => {
+      await startup?.catch(() => {});
+      if (app.isReady()) globalShortcut.unregisterAll();
+      keyboard?.stop();
+      await Promise.allSettled([delivery.restoreNow(), transcription?.cancel(), settingsFile?.settled(), history?.settled()]);
+    })().finally(async () => { await profileLock?.release(); quitReady = true; app.quit(); });
   });
-  void app.whenReady().then(start).catch(error => { console.error(error); app.exit(1); });
+  void app.whenReady().then(() => {
+    if (!quitting) { startup = start(); return startup; }
+  }).catch(error => { console.error(error); app.exit(1); });
 }

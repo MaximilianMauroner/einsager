@@ -1,7 +1,8 @@
 # einsager
 
 Hold a key, speak, and the text appears in the field where you were typing.
-einsager is a desktop dictation app for macOS, Windows, and Linux. It
+einsager is a desktop dictation app for macOS, Windows, and Linux. macOS uses
+a small native app; Windows and Linux use Electron. It
 transcribes with the ChatGPT login that Codex already keeps on your computer,
 so it needs no separate account, subscription, or API key.
 
@@ -153,6 +154,7 @@ pnpm test:desktop          # after pnpm build; on Linux: xvfb-run -a pnpm test:d
 pnpm test:packaged         # after pnpm package
 pnpm test:linux            # Linux, with xdotool, under Xvfb or a desktop
 pnpm test:macos            # macOS shortcut logic
+pnpm test:native           # macOS native logic and memory, with hidden views and synthetic audio
 ```
 
 - [Architecture](docs/architecture.md): source map, boundaries, and checks.

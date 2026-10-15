@@ -76,7 +76,10 @@ export async function signMacApp(app, directory = defaultDirectory) {
   const signing = ['--force', '--sign', identity.identity, '--keychain', identity.keychain, '--timestamp=none'];
   // These executables are resources, so --deep does not sign them as nested code.
   for (const [executable, identifier] of [['einsager-keys', 'local.max.einsager.keys'], ['einsager-transcribe', 'local.max.einsager.transcribe']]) {
-    run('/usr/bin/codesign', [...signing, '--identifier', identifier, join(app, 'Contents/Resources', executable)]);
+    const file = join(app, 'Contents/Resources', executable);
+    if (await access(file).then(() => true, () => false)) {
+      run('/usr/bin/codesign', [...signing, '--identifier', identifier, file]);
+    }
   }
   run('/usr/bin/codesign', [...signing, '--deep', app]);
   run('/usr/bin/codesign', ['--verify', '--deep', '--strict', app]);

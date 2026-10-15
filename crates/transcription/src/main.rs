@@ -52,14 +52,20 @@ fn read_audio(audio_path: &Path) -> Result<multipart::Part, String> {
         "m4a" => "audio/mp4",
         _ => return Err("Recording must be a WAV or M4A audio file.".into()),
     };
-    let mut audio = Vec::new();
-    File::open(audio_path)
-        .and_then(|file| file.take(MAX_AUDIO_BYTES + 1).read_to_end(&mut audio))
+    let file = File::open(audio_path)
         .map_err(|_| "Cannot read recording. Retry or start a new dictation.")?;
-    if audio.is_empty() || audio.len() as u64 > MAX_AUDIO_BYTES {
+    let metadata = file
+        .metadata()
+        .map_err(|_| "Cannot read recording. Retry or start a new dictation.")?;
+    if !metadata.is_file() {
+        return Err("Cannot read recording. Retry or start a new dictation.".into());
+    }
+    let length = metadata.len();
+    if length == 0 || length > MAX_AUDIO_BYTES {
         return Err("Recording must be nonempty and no larger than 25 MiB.".into());
     }
-    multipart::Part::bytes(audio)
+    // Stream from the opened file. A file that grows cannot exceed its validated length.
+    multipart::Part::reader_with_length(file.take(length), length)
         .file_name(format!("dictation.{suffix}"))
         .mime_str(content_type)
         .map_err(|_| "Cannot prepare recording for transcription.".into())

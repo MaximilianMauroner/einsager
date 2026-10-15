@@ -99,16 +99,18 @@ helper reads the login; the app's windows never receive it.
 
 ## macOS permissions
 
-einsager asks for missing permissions each time it starts:
+einsager asks for microphone access when recording starts. Settings shows
+whether Accessibility access is available:
 
 - **Microphone**: needed to record.
 - **Accessibility**: needed for the Fn shortcuts and for automatic paste. Click
   **Allow…** in Settings to open the Accessibility list in System Settings, then
-  turn on einsager. Until then, the Fn shortcut buttons stay disabled, the
-  **Fallback** shortcut starts dictation, and you paste by hand.
+  turn on einsager. Until then, use the **Fallback** shortcut to start dictation
+  and paste by hand.
 
-When you run einsager from a terminal with `pnpm start`, macOS checks the
-terminal app's access instead.
+On macOS, `pnpm start` prepares and opens the native app bundle, so its own
+microphone permission applies. The temporary Electron fallback uses the
+terminal app's access when started with `pnpm start --electron`.
 
 After you install a new version, the Fn shortcuts and automatic paste can stop
 working while the Accessibility list still shows einsager as allowed. The release is not signed
@@ -122,7 +124,7 @@ on. Turning the switch off and on again is not enough.
 When building on your Mac, use `pnpm install:macos`. It builds and installs the
 app at `/Applications/einsager.app` and opens it. The first run creates a local
 code-signing certificate. Later builds, including `pnpm package`, reuse it for
-the app and its keyboard helper. Their signing identities stay the same even
+the app and its bundled helpers. Their signing identities stay the same even
 when their code changes, so macOS can keep the permissions you approved.
 
 After switching from an ad-hoc signed build, remove the old Accessibility

@@ -4,10 +4,10 @@
 
 ## Platform
 
-web
+desktop
 
-One Electron app with a React renderer runs on Linux, macOS, and Windows. On
-macOS, a small Swift helper handles Fn shortcuts and paste.
+macOS uses a native Swift/AppKit host. Windows and Linux use Electron and React.
+Both hosts use the same Rust transcription helper and the same visual design.
 
 ## Users
 
@@ -57,6 +57,10 @@ independent of OpenAI and Wispr.
 - Menu-bar icon: the "breath e" template in `assets/icons/`.
 - The maintainer asked that the menu and settings look more distinctive than a
   stock system menu, while staying fast to use.
+- Native macOS must preserve the Electron panel and pill's appearance. Lower
+  memory use does not authorize a different design. Settled background memory
+  must stay at or below 30 MB physical footprint. Temporary increases while
+  opening the panel or dictating are acceptable.
 
 ## Evidence on Hand
 

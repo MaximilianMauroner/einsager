@@ -37,3 +37,9 @@ export function parseStoredSettings(value: unknown): Settings {
   }
   return settings;
 }
+
+/** Keep host-specific stored fields out of the panel contract while preserving them on a save. */
+export function serializeStoredSettings(original: unknown, settings: Settings) {
+  const stored = typeof original === 'object' && original !== null && !Array.isArray(original) ? original : {};
+  return JSON.stringify({ ...stored, ...settings, codexHome: settings.codexHome });
+}
