@@ -1,9 +1,9 @@
 # Set the social preview
 
-[social-preview.png](social-preview.png) is the approved launch card. It uses
-the tray `e` icon, the repository name, the Codex login description, and the
-alpha status. The PNG is 1200 × 600 pixels and under 1 MB. It matches GitHub's
-2:1 image ratio and exceeds its minimum size of 640 × 320 pixels.
+[social-preview.png](social-preview.png) is the launch card. It shows a
+conceptual view of dictation in use, with the tray `e` icon and alpha status.
+The PNG is 1200 × 600 pixels and under 1 MB. It matches GitHub's 2:1 image
+ratio and exceeds its minimum size of 640 × 320 pixels.
 
 ![einsager social preview](social-preview.png)
 
