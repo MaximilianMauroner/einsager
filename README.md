@@ -1,5 +1,7 @@
 # einsager
 
+![einsager dictation illustration](assets/einsager-banner.png)
+
 Hold a key, speak, and the text appears in the field where you were typing.
 einsager is a desktop dictation app for macOS, Windows, and Linux. macOS uses
 a small native app; Windows and Linux use Electron. It
