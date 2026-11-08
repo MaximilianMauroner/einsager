@@ -15,9 +15,11 @@ so it needs no separate account, subscription, or API key.
 
 > [!IMPORTANT]
 > einsager sends your audio to ChatGPT's internal transcription endpoint, the
-> one that Codex uses. It is not a public API and can change or stop working at
-> any time. einsager is an independent project, not affiliated with OpenAI or
-> Wispr.
+> one that Codex uses. This may violate
+> [OpenAI's terms of use](https://openai.com/policies/eu-terms-of-use/).
+> Whether OpenAI permits this use has not yet been verified. The endpoint is not
+> a public API and can change or stop working at any time. einsager is an
+> independent project, not affiliated with OpenAI or Wispr.
 
 ## Features
 
