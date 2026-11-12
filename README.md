@@ -4,9 +4,9 @@
 
 Hold a key, speak, and the text appears in the field where you were typing.
 einsager is a desktop dictation app for macOS, Windows, and Linux. macOS uses
-a small native app; Windows and Linux use Electron. It
-uses an OpenAI API key for the official transcription API. The existing
-Codex login path is available as a secondary option.
+a small native app. Windows and Linux use Electron. einsager uses an OpenAI API
+key for the official transcription API. The existing Codex login path is
+available as a secondary option.
 
 > [!WARNING]
 > einsager is an **alpha**. Expect bugs and changes between versions, and read
@@ -33,8 +33,9 @@ Codex login path is available as a secondary option.
 
 ## Install
 
-Create an [OpenAI API key](https://platform.openai.com/api-keys). After you open
-einsager, select **Settings** and add the key. On macOS, paste it into the secure
+Download and install einsager with the steps below. Then create an
+[OpenAI API key](https://platform.openai.com/api-keys). Open einsager, select
+**Settings**, and add the key. On macOS, paste it into the secure
 key dialog. Electron imports the key from your clipboard after confirmation
 and clears the clipboard. No key appears in the panel or its saved settings.
 
@@ -43,7 +44,9 @@ can [claim monthly API credits](https://developers.openai.com/api/docs/guides/ch
 The subscription must be at least seven days old. You must own the subscription
 and API organization, and use the same email for both accounts. Limits and expiry
 apply. Plus, Go, and Free do not qualify. A subscription alone does not make all
-API use free.
+API use free. Use a project key from the organization that receives the credits.
+See [transcription setup](docs/usage.md#transcription-setup) for key replacement,
+service selection, and API errors.
 
 Existing profiles keep Codex selected and require the warning before their next
 dictation. Changing provider cancels the current recording or upload. einsager
@@ -111,8 +114,8 @@ and what each platform supports.
 
 - The optional Codex login path depends on an internal ChatGPT endpoint. It
   can change or stop working at any time.
-- For the optional Codex path, Codex must keep the ChatGPT login in a file. A login in the system keychain
-  does not work. See [Codex login](docs/usage.md#codex-login).
+- For the optional Codex path, Codex must keep the ChatGPT login in a file.
+  A login in the system keychain does not work. See [Codex login](docs/usage.md#codex-login).
 - Automatic paste works on macOS and on Linux X11. On Windows and Wayland, you
   paste the transcript yourself.
 - On Wayland, the desktop places the pill, so you cannot drag or dock it.

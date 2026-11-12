@@ -17,7 +17,7 @@ and Linux. Both call the same Rust transcription helper. Start in
 | [`apps/desktop/native/macos/`](../apps/desktop/native/macos/) | Swift, AppKit, AudioQueue, Carbon, Accessibility | macOS | Native host, pill, panel, recording, shortcuts, clipboard, and helper lifecycle |
 | [`apps/desktop/scripts/`](../apps/desktop/scripts/) | Node.js, Swift | All | Build, package, and the macOS app icon |
 | [`apps/desktop/tests/`](../apps/desktop/tests/) | Node test runner, Playwright | All | Unit tests and desktop smoke tests |
-| [`crates/transcription/`](../crates/transcription/) | Rust executable | All | Codex login discovery, audio validation, ChatGPT upload, JSON output |
+| [`crates/transcription/`](../crates/transcription/) | Rust executable | All | Explicit provider selection, audio validation, OpenAI upload, JSON output |
 | [`assets/icons/`](../assets/icons/) | PDF, PNG | All | Vector logo for the macOS app icon, and the tray icon |
 
 Root files hold dependency locks, compiler settings, CI, and the license.
@@ -30,7 +30,7 @@ flowchart LR
     preload -->|"IPC"| host["Host<br/>Electron + Node.js"]
     host <-->|"JSON lines"| keys["macOS keyboard helper<br/>Swift"]
     host -->|"temporary WAV; child process"| helper["Transcription helper<br/>Rust"]
-    helper -->|"audio upload"| chatgpt["ChatGPT transcription"]
+    helper -->|"audio upload"| openai["Selected OpenAI service"]
     helper -->|"JSON result"| host
     host -->|"clipboard"| editor["Text field"]
     host -->|"recording target; cancellation"| linux["Linux desktop adapter"]
@@ -48,8 +48,10 @@ code. Paths in this section are relative to `apps/desktop/`.
 
 In Electron, `src/main/transcription.ts` owns one temporary WAV and one helper process.
 Session generations reject results that arrive after a cancel or a newer
-recording. The Rust helper reads credentials in its own process; no window
-receives them. Its JSON output and WAV input are its contract with the host.
+recording. No renderer receives credentials. API keys reach the helper through stdin,
+so process arguments cannot expose them. The helper reads Codex login files
+only when that service is selected. Provider choice is explicit. A credential
+failure must not switch the service or its billing account.
 
 `src/main/delivery.ts` owns one recording's paste target, clipboard writes,
 clipboard recovery, and cancellation. A paste target captures the focused window
@@ -130,7 +132,8 @@ AudioQueue converts input to 16 kHz mono PCM. Each callback writes to disk;
 recording duration does not grow a retained audio buffer. After stop, the
 voiceprint reader uses a fixed 16 KB buffer. The Rust helper streams the
 opened audio file into the multipart upload and caps reads at the validated
-file length. Credentials remain inside that helper.
+file length. API keys stay in the host's secure store and reach the helper
+through stdin. Codex tokens remain inside the helper.
 
 The macOS UI follows the existing `panel.css` and `style.css` design. Small
 `NSControl` subclasses draw buttons, switches, and radio choices. System button
@@ -232,8 +235,8 @@ and its restore guard, history storage and limits, settings validation, Linux
 capability and focus cases, and the macOS paste protocol with a fake helper.
 Rust tests use fixture credentials and a local test server.
 
-The Electron smoke tests use Chromium's fake microphone and an empty Codex folder, so they
-send no transcription request. They drive recording, the missing-login error,
+The Electron smoke tests use Chromium's fake microphone and an empty Codex
+folder with fixture consent, so they send no transcription request. They drive recording, the missing-login error,
 Retry, cancel, Copy, the tray panel and its settings, microphone choice, and side
 docking, in both the source and the packaged app. The Linux test sends targeted
 paste keys to a separate test editor, and a second run checks the Wayland policy
