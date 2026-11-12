@@ -1,4 +1,4 @@
-import { app, BrowserWindow, clipboard, ClipboardItem, dialog, globalShortcut, ipcMain, Menu, nativeImage, screen, session, shell, systemPreferences, Tray } from 'electron';
+import { app, BrowserWindow, clipboard, ClipboardItem, dialog, globalShortcut, ipcMain, Menu, nativeImage, screen, safeStorage, session, shell, systemPreferences, Tray } from 'electron';
 import { readFile } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { join, resolve, sep } from 'node:path';
@@ -16,6 +16,8 @@ import { TrayPanel } from './panel';
 import { PrivateFile } from './private-file';
 import { MacKeyboard } from './keyboard';
 import { ProfileLock } from './profile-lock';
+import { ApiKeyStore, validateApiKey } from './api-key';
+import { API_KEYS_URL, API_CREDITS_URL, CODEX_WARNING, type TranscriptionProvider } from '../shared/provider';
 
 const platform = platformFor(process.platform);
 const linux = process.platform === 'linux' ? new LinuxDesktop() : undefined;
@@ -44,6 +46,39 @@ let pillNeeded = false;
 /** The audio inputs the pill last listed. */
 let microphones: Microphone[] = [];
 let transcription: TranscriptionSession;
+let apiKeys: ApiKeyStore;
+let hasApiKey = false;
+let providerChanges = Promise.resolve();
+
+function changeProvider(action: () => Promise<void>) {
+  const next = providerChanges.catch(() => {}).then(action);
+  providerChanges = next;
+  return next;
+}
+
+async function confirmCodex() {
+  app.focus({ steal: true });
+  const { response } = await panel.holdOpen(() => dialog.showMessageBox(panel.window, {
+    type: 'warning', message: 'Use Codex login at your own risk?', detail: CODEX_WARNING,
+    buttons: ['Cancel', 'Continue with Codex login'], defaultId: 0, cancelId: 0, noLink: true,
+  })).finally(updateEscape);
+  return response === 1;
+}
+
+async function stopForProviderChange() {
+  delivery.cancel();
+  await transcription.cancel();
+  send('cancel');
+}
+
+async function selectProvider(provider: TranscriptionProvider) {
+  if (provider === 'codex-login' && !await confirmCodex()) return;
+  if (quitting) return;
+  await stopForProviderChange();
+  settings = { ...settings, provider, codexLoginAcknowledged: provider === 'codex-login' };
+  await saveSettings();
+  publish();
+}
 let dragOrigin: Electron.Rectangle | undefined;
 let pillHeight = 8;
 /** The size the renderer last asked for. Docking at another edge can need a different window size. */
@@ -139,9 +174,11 @@ const profileLock = process.platform === 'darwin' ? new ProfileLock(helperFile('
 }) : undefined;
 
 function createTranscription() {
-  // Keep credentials inside the helper. The renderer never reads the login or receives tokens.
-  transcription = new TranscriptionSession({ file: helperFile(platform.helperExecutable) },
-    { ...process.env, CODEX_HOME: codexLoginFolders(settings, process.env.CODEX_HOME, homedir()).folder });
+  transcription = new TranscriptionSession({ file: helperFile(platform.helperExecutable) }, process.env, async () => {
+    if (settings.provider === 'api-key') return { provider: 'api-key', key: await apiKeys.read() };
+    if (!settings.codexLoginAcknowledged) throw new Error('Review the Codex login warning in Settings.');
+    return { provider: 'codex-login', codexHome: codexLoginFolders(settings, process.env.CODEX_HOME, homedir()).folder };
+  });
 }
 
 /**
@@ -177,9 +214,9 @@ function updatePill() {
 function panelState(): PanelState {
   const home = homedir();
   const { folder, defaultFolder } = codexLoginFolders(settings, process.env.CODEX_HOME, home);
-  const { codexHome: _, ...editable } = settings;
+  const { codexHome: _, codexLoginAcknowledged: __, ...editable } = settings;
   return {
-    status, history: [...history.entries], settings: editable,
+    status, history: [...history.entries], settings: editable, hasApiKey,
     codexFolder: folder === home || folder.startsWith(home + sep) ? '~' + folder.slice(home.length) : folder,
     canResetCodexFolder: folder !== defaultFolder, microphones,
     shortcutAvailable, canPaste: linux?.canPaste ?? keyboardState?.trusted ?? false,
@@ -267,6 +304,16 @@ function installIPC() {
   });
   ipcMain.handle('begin', async event => {
     trusted(event);
+    await changeProvider(async () => {
+      if (settings.provider === 'codex-login' && !settings.codexLoginAcknowledged) {
+        if (!await confirmCodex() || quitting) return;
+        settings = { ...settings, codexLoginAcknowledged: true };
+        await saveSettings();
+        publish();
+      }
+    });
+    if (settings.provider === 'codex-login' && !settings.codexLoginAcknowledged) return { cancelled: true };
+    if (settings.provider === 'api-key' && !hasApiKey) return { error: 'Add an OpenAI API key in Settings.' };
     const preparation = delivery.begin();
     await transcription.cancel();
     await preparation;
@@ -387,10 +434,56 @@ function installIPC() {
     recordingShortcut = active;
     applyShortcuts();
   });
-  ipcMain.handle('panel:codex', async event => { fromPanel(event); await chooseCodexHome(); });
+  ipcMain.handle('panel:provider', (event, value: unknown) => {
+    fromPanel(event);
+    if (value !== 'api-key' && value !== 'codex-login') return;
+    return changeProvider(() => selectProvider(value));
+  });
+  ipcMain.handle('panel:api-key', async event => {
+    fromPanel(event);
+    let result: { error?: string } = {};
+    await changeProvider(async () => {
+      const { response } = await panel.holdOpen(() => dialog.showMessageBox(panel.window, {
+        type: 'question', message: 'Use the API key from your clipboard?',
+        detail: 'Copy an OpenAI API key first. einsager stores it with system encryption, clears it from the clipboard, and selects the official API. API use can incur charges.',
+        buttons: ['Cancel', 'Save and use API key'], defaultId: 0, cancelId: 0, noLink: true,
+      })).finally(updateEscape);
+      if (response !== 1 || quitting) return;
+      const value = await clipboard.readText();
+      try {
+        const key = validateApiKey(value);
+        await stopForProviderChange();
+        await apiKeys.save(key);
+        if (await clipboard.readText() === value) clipboard.clear();
+        hasApiKey = true;
+        settings = { ...settings, provider: 'api-key', codexLoginAcknowledged: false };
+        await saveSettings();
+        publish();
+      } catch (error) { result = { error: error instanceof Error ? error.message : 'Cannot save the API key.' }; }
+    });
+    return result;
+  });
+  ipcMain.handle('panel:api-key-remove', async event => {
+    fromPanel(event);
+    let result: { error?: string } = {};
+    await changeProvider(async () => {
+      try {
+        await stopForProviderChange();
+        await apiKeys.remove();
+        hasApiKey = false;
+        publish();
+      } catch { result = { error: 'Cannot remove the API key.' }; }
+    });
+    return result;
+  });
+  ipcMain.on('panel:provider-link', (event, link: unknown) => {
+    fromPanel(event);
+    if (link === 'keys' || link === 'credits') void shell.openExternal(link === 'keys' ? API_KEYS_URL : API_CREDITS_URL);
+  });
+  ipcMain.handle('panel:codex', async event => { fromPanel(event); await changeProvider(chooseCodexHome); });
   ipcMain.handle('panel:codex-reset', async event => {
     fromPanel(event);
-    await setCodexHome(codexLoginFolders(settings, process.env.CODEX_HOME, homedir()).defaultFolder);
+    await changeProvider(() => setCodexHome(codexLoginFolders(settings, process.env.CODEX_HOME, homedir()).defaultFolder));
   });
   ipcMain.on('panel:resize', (event, height: unknown) => {
     fromPanel(event);
@@ -408,8 +501,12 @@ async function start() {
     storedSettings = JSON.parse(await settingsFile.read());
     settings = parseStoredSettings(storedSettings);
   }
-  catch { /* First launch or invalid settings uses defaults. */ }
+  catch (error) {
+    if (!(error instanceof Error && 'code' in error && error.code === 'ENOENT')) settings = parseStoredSettings(null);
+  }
   if (quitting) return;
+  apiKeys = new ApiKeyStore(join(app.getPath('userData'), 'openai-api-key.enc'), safeStorage);
+  hasApiKey = await apiKeys.hasKey();
   history = new TranscriptHistory(join(app.getPath('userData'), 'history.json'));
   await history.load();
   if (quitting) return;
@@ -492,6 +589,7 @@ else {
     // settings and history writes finish. Startup must settle before ownership can be released.
     void (async () => {
       await startup?.catch(() => {});
+      await providerChanges.catch(() => {});
       if (app.isReady()) globalShortcut.unregisterAll();
       keyboard?.stop();
       await Promise.allSettled([delivery.restoreNow(), transcription?.cancel(), settingsFile?.settled(), history?.settled()]);

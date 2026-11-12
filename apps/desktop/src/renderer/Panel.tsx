@@ -1,6 +1,7 @@
 import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
 import type { ClipboardMode, DockEdge, HistoryEntry, KeyboardState, PanelBridge, PanelSettings, PanelState, SessionStatus } from '../shared/contract';
 import { DEFAULT_SHORTCUT, shortcutFromKey } from '../shared/shortcut';
+import { CREDIT_NOTICE } from '../shared/provider';
 import { keyCaps } from './keys';
 
 declare global { interface Window { einsagerPanel?: PanelBridge } }
@@ -10,8 +11,8 @@ const MAX_HEIGHT = 600;
 const mac = navigator.platform.startsWith('Mac');
 const initial: PanelState = {
   status: { state: 'idle' }, history: [],
-  settings: { edge: 'bottom', clipboard: 'if-paste-fails', keepHistory: true, showPill: true, shortcut: DEFAULT_SHORTCUT, microphone: '' },
-  codexFolder: '~/.codex', canResetCodexFolder: false, microphones: [], shortcutAvailable: true, canPaste: false, canPositionWindow: true,
+  settings: { provider: 'api-key', edge: 'bottom', clipboard: 'if-paste-fails', keepHistory: true, showPill: true, shortcut: DEFAULT_SHORTCUT, microphone: '' },
+  hasApiKey: false, codexFolder: '~/.codex', canResetCodexFolder: false, microphones: [], shortcutAvailable: true, canPaste: false, canPositionWindow: true,
 };
 const clipboardChoices: { mode: ClipboardMode; label: string; detail: string }[] = [
   { mode: 'always', label: 'Always', detail: 'The transcript stays on the clipboard.' },
@@ -148,6 +149,7 @@ function groupByDay(entries: HistoryEntry[]) {
 export function Panel() {
   const api = window.einsagerPanel;
   const [state, setState] = useState(initial);
+  const [providerError, setProviderError] = useState('');
   const [view, setView] = useState<'tape' | 'settings'>('tape');
   const [query, setQuery] = useState<string>();
   const [copied, setCopied] = useState<string>();
@@ -203,7 +205,7 @@ export function Panel() {
     setCopied(entry.id);
     copiedTimer.current = setTimeout(() => setCopied(undefined), 1500);
   }
-  const update = (change: Partial<PanelSettings>) => { void api?.update(change); };
+  const update = (change: Partial<Omit<PanelSettings, 'provider'>>) => { void api?.update(change); };
 
   if (view === 'settings') {
     return <div ref={root} className="panel" style={frame}>
@@ -211,6 +213,31 @@ export function Panel() {
         <button className="back" onClick={() => setView('tape')}><Icon name="back" /><span className="word">Settings</span></button>
       </header>
       <div className="settings">
+        <div className="group-head"><span>Transcription</span></div>
+        <label className="row">
+          <span>OpenAI API key</span>
+          <input type="radio" name="provider" checked={settings.provider === 'api-key'}
+            onChange={() => void api?.selectProvider('api-key')} />
+        </label>
+        <div className="row">
+          <span>{state.hasApiKey ? 'API key saved' : 'No API key saved'}</span>
+          <button className="quiet" onClick={() => void api?.importApiKey().then(result => setProviderError(result.error ?? ''))}>
+            {state.hasApiKey ? 'Replace from clipboard…' : 'Add from clipboard…'}</button>
+        </div>
+        {state.hasApiKey && <div className="row"><span>Secure storage</span><button className="danger"
+          onClick={() => void api?.removeApiKey().then(result => setProviderError(result.error ?? ''))}>Remove API key</button></div>}
+        {providerError && <p className="note inset alarm" role="alert">{providerError}</p>}
+        <div className="row"><button className="quiet" onClick={() => api?.openProviderLink('keys')}>Create an API key</button>
+          <button className="quiet" onClick={() => api?.openProviderLink('credits')}>Claim subscription credits</button></div>
+        <p className="note inset">{CREDIT_NOTICE}</p>
+        <label className="row">
+          <span>Codex login · unofficial</span>
+          <input type="radio" name="provider" checked={settings.provider === 'codex-login'}
+            onChange={() => void api?.selectProvider('codex-login')} />
+        </label>
+        {settings.provider === 'codex-login' && <div className="row"><span>May violate OpenAI's terms</span>
+          <button className="quiet" onClick={() => void api?.selectProvider('codex-login')}>Review warning…</button></div>}
+
         <label className="row">
           <span>Microphone</span>
           <select value={settings.microphone} onChange={event => update({ microphone: event.target.value })}>
@@ -245,13 +272,13 @@ export function Panel() {
             if (choice) update({ edge: choice.edge });
           }}>{edges.map(item => <option key={item.edge} value={item.edge}>{item.label}</option>)}</select>
         </label>
-        <div className="group-head">
+        {settings.provider === 'codex-login' && <><div className="group-head">
           <span>Codex login folder</span>
           <button className="quiet" disabled={!state.canResetCodexFolder} onClick={() => void api?.resetCodexHome()}>Reset to default</button>
         </div>
         <button className="row" aria-label={`Change the Codex login folder, now ${state.codexFolder}`} onClick={() => void api?.chooseCodexHome()}>
           <span className="path">{state.codexFolder}</span><Icon name="right" />
-        </button>
+        </button></>}
         {state.keyboard
           ? <ShortcutRows keyboard={state.keyboard} api={api}
             fallback={<ShortcutRecorder label="Fallback" shortcut={settings.shortcut} available={state.shortcutAvailable} api={api} />} />
@@ -268,7 +295,7 @@ export function Panel() {
             <button className="quiet" onClick={() => api?.quit()}>Quit einsager</button>
           </>}
         </div>
-        <p className="foot">Audio goes to ChatGPT to transcribe. History stays on this computer.{state.desktopNotice && <><br />{state.desktopNotice}</>}</p>
+        <p className="foot">Audio goes to OpenAI to transcribe. History stays on this computer.{state.desktopNotice && <><br />{state.desktopNotice}</>}</p>
       </div>
     </div>;
   }

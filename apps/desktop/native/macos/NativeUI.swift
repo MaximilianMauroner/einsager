@@ -446,6 +446,7 @@ final class NativeUI: NSObject, NSWindowDelegate, NSTableViewDataSource, NSTable
         pillPanel = PillPanel(contentRect: NSRect(x: 0, y: 0, width: 40, height: 8), styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
         pill = NativePill(session: session)
         super.init()
+        session.confirmCodex = { [weak self] in self?.confirmCodex() ?? false }
         panel.delegate = self; panel.backgroundColor = .clear; panel.isOpaque = false; panel.appearance = NSAppearance(named: .darkAqua)
         panel.hasShadow = true; panel.isReleasedWhenClosed = false; panel.level = .floating; panel.title = "einsager history and settings"
         panel.contentMinSize = NSSize(width: 340, height: 120); panel.contentMaxSize = NSSize(width: 340, height: 600)
@@ -738,6 +739,20 @@ final class NativeUI: NSObject, NSWindowDelegate, NSTableViewDataSource, NSTable
         func button(_ title: String, tint: NSColor = NativeStyle.secondary, action: @escaping () -> Void) -> ActionButton {
             let button = ActionButton(title, action: action); button.tint = tint; return button
         }
+        add(FormRow("Transcription", control: button(session.store.provider == .apiKey ? "API key selected" : "Use API key") { [weak self] in self?.selectProvider(.apiKey) }, group: true), height: 32)
+        row("OpenAI API key", button(session.apiKeys.hasKey ? "Replace API key…" : "Add API key…", tint: NativeStyle.accent) { [weak self] in self?.editApiKey() })
+        if session.apiKeys.hasKey {
+            row("Saved in Keychain", button("Remove API key", tint: NativeStyle.alarm) { [weak self] in
+                guard let self else { return }
+                self.session.cancel()
+                do { try self.session.apiKeys.remove(); self.showSettings() }
+                catch { self.providerError(error.localizedDescription) }
+            })
+        }
+        row("OpenAI account", button("Create an API key", tint: NativeStyle.accent) { NSWorkspace.shared.open(apiKeysURL) })
+        add(FormText(creditNotice), height: NativeStyle.height(creditNotice, width: 306, size: 11.5, lineHeight: 1.45) + 20)
+        row("Subscription credits", button("Claim guide", tint: NativeStyle.accent) { NSWorkspace.shared.open(apiCreditsURL) })
+        row("Codex login · unofficial", button(session.store.provider == .codexLogin ? "Review warning…" : "Use Codex login…") { [weak self] in self?.selectProvider(.codexLogin) })
         let microphone = StylePopup("Microphone", options: [("", "System default")] + AudioInput.all().map { ($0.uid, $0.name) }, selected: session.store.microphone) { [weak self] in self?.update("nativeMicrophone", $0) }
         row("Microphone", microphone)
         let choices = FlippedView(); let legend = FormText("Clipboard after dictation", size: 13, color: NativeStyle.ink)
@@ -762,14 +777,16 @@ final class NativeUI: NSObject, NSWindowDelegate, NSTableViewDataSource, NSTable
         row("Show pill when idle", show)
         let edge = StylePopup("Dock the pill", options: [("bottom", "Bottom"), ("top", "Top"), ("left", "Left"), ("right", "Right")], selected: session.store.edge) { [weak self] in self?.update("edge", $0) }
         row("Dock the pill", edge)
-        let resetHome = button("Reset to default") { [weak self] in guard let self else { return }; self.session.cancel(); self.update("codexHome", self.session.store.defaultCodexHome) }
-        resetHome.isEnabled = session.store.codexHome != session.store.defaultCodexHome
-        add(FormRow("Codex login folder", control: resetHome, group: true), height: 32)
-        let home = FileManager.default.homeDirectoryForCurrentUser.path
-        let path = session.store.codexHome.replacingOccurrences(of: home, with: "~", options: .anchored)
-        let folder = FolderButton(path) { [weak self] in self?.chooseFolder() }
-        folder.setAccessibilityLabel("Change the Codex login folder, now \(path)")
-        add(folder, height: 42)
+        if session.store.provider == .codexLogin {
+            let resetHome = button("Reset to default") { [weak self] in guard let self else { return }; self.session.cancel(); self.update("codexHome", self.session.store.defaultCodexHome) }
+            resetHome.isEnabled = session.store.codexHome != session.store.defaultCodexHome
+            add(FormRow("Codex login folder", control: resetHome, group: true), height: 32)
+            let home = FileManager.default.homeDirectoryForCurrentUser.path
+            let path = session.store.codexHome.replacingOccurrences(of: home, with: "~", options: .anchored)
+            let folder = FolderButton(path) { [weak self] in self?.chooseFolder() }
+            folder.setAccessibilityLabel("Change the Codex login folder, now \(path)")
+            add(folder, height: 42)
+        }
         let resetKeys = button("Reset to Fn") { [weak self] in self?.keyboard.perform(["command": "reset"]) }; resetKeys.isEnabled = trusted
         add(FormRow("Shortcuts", control: resetKeys, group: true), height: 32)
         if !trusted {
@@ -806,7 +823,7 @@ final class NativeUI: NSObject, NSWindowDelegate, NSTableViewDataSource, NSTable
             clear.frame = NSRect(x: 16, y: 11, width: 100, height: 20); lastRow.control = quit; lastRow.addSubview(quit); lastRow.addSubview(clear)
         } else { quit.frame = NSRect(x: 210, y: 11, width: 30, height: 20); lastRow.addSubview(quit) }
         add(lastRow, height: 42)
-        add(FormText("Audio goes to ChatGPT to transcribe. History stays on this computer."), height: 65)
+        add(FormText("Audio goes to OpenAI to transcribe. History stays on this computer."), height: 65)
         form.frame.size.height = y
         let scroll = makeScroll(document: form); root.addSubview(scroll); self.scroll = scroll
         resizePanel(y + 54); layoutPanel()
@@ -818,6 +835,60 @@ final class NativeUI: NSObject, NSWindowDelegate, NSTableViewDataSource, NSTable
             }
             if let focus = match(root) { panel.makeFirstResponder(focus) }
         }
+    }
+
+    private func confirmCodex() -> Bool {
+        holdingOpen = true
+        defer { holdingOpen = false }
+        NSApp.activate(ignoringOtherApps: true)
+        let alert = NSAlert()
+        alert.alertStyle = .warning
+        alert.messageText = "Use Codex login at your own risk?"
+        alert.informativeText = codexWarning
+        alert.addButton(withTitle: "Cancel")
+        alert.addButton(withTitle: "Continue with Codex login")
+        alert.buttons[0].keyEquivalent = "\r"
+        alert.buttons[1].keyEquivalent = ""
+        return alert.runModal() == .alertSecondButtonReturn
+    }
+
+    private func selectProvider(_ provider: TranscriptionProvider) {
+        if provider == .codexLogin && !confirmCodex() { return }
+        session.cancel()
+        session.store.selectProvider(provider)
+        showSettings()
+    }
+
+    private func editApiKey() {
+        holdingOpen = true
+        defer { holdingOpen = false }
+        let alert = NSAlert()
+        alert.messageText = "Use an OpenAI API key"
+        alert.informativeText = "Paste your API key. einsager saves it in Keychain and selects the official API. API use can incur charges."
+        let field = NSSecureTextField(frame: NSRect(x: 0, y: 0, width: 300, height: 24))
+        field.placeholderString = "OpenAI API key"
+        field.setAccessibilityLabel("OpenAI API key")
+        alert.accessoryView = field
+        alert.addButton(withTitle: "Cancel")
+        alert.addButton(withTitle: "Save and use API key")
+        alert.window.initialFirstResponder = field
+        NSApp.activate(ignoringOtherApps: true)
+        let response = alert.runModal()
+        defer { field.stringValue = ""; alert.accessoryView = nil }
+        guard response == .alertSecondButtonReturn else { return }
+        session.cancel()
+        do {
+            try session.apiKeys.save(field.stringValue)
+            session.store.selectProvider(.apiKey)
+            showSettings()
+        } catch { providerError(error.localizedDescription) }
+    }
+
+    private func providerError(_ message: String) {
+        let alert = NSAlert()
+        alert.messageText = "Cannot update the API key"
+        alert.informativeText = message
+        alert.runModal()
     }
 
     private func update(_ key: String, _ value: Any) { session.store.update(key, value); refresh(); onShortcutChange() }

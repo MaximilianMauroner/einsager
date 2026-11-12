@@ -8,6 +8,8 @@ final class NativeSession {
     let store: NativeStore
     let transcription: NativeTranscription
     let delivery: NativeDelivery
+    let apiKeys: ApiKeyStorage
+    var confirmCodex: () -> Bool = { false }
     private(set) var phase = NativePhase.idle
     private(set) var message = ""
     private(set) var holding: Bool?
@@ -33,10 +35,11 @@ final class NativeSession {
     }
     var active: Bool { [.requesting, .recording, .processing].contains(phase) }
 
-    init(store: NativeStore, helper: URL, delivery: NativeDelivery = NativeDelivery()) {
+    init(store: NativeStore, helper: URL, delivery: NativeDelivery = NativeDelivery(), apiKeys: ApiKeyStorage? = nil) {
         self.store = store
         self.transcription = NativeTranscription(helper: helper)
         self.delivery = delivery
+        self.apiKeys = apiKeys ?? KeychainApiKey(profile: store.directory)
     }
 
     func act(_ action: String) {
@@ -76,6 +79,15 @@ final class NativeSession {
 
     func start(hold: Bool) {
         cancel(notify: false)
+        if store.provider == .codexLogin && !store.codexLoginAcknowledged {
+            guard confirmCodex() else { onChange(); return }
+            store.selectProvider(.codexLogin)
+            if hold { feedback("Codex login enabled. Start dictation again."); return }
+        }
+        if store.provider == .apiKey && !apiKeys.hasKey {
+            fail("Add an OpenAI API key in Settings.", retryable: false)
+            return
+        }
         holding = hold
         delivery.restoreNow()
         delivery.target = captureTarget()
@@ -135,7 +147,16 @@ final class NativeSession {
     private func upload() {
         let current = revision
         change(.processing, "Transcribing…")
-        transcription.run(codexHome: store.codexHome) { [weak self] result in
+        let credentials: TranscriptionCredentials
+        do {
+            switch store.provider {
+            case .apiKey: credentials = .apiKey(try apiKeys.read())
+            case .codexLogin:
+                guard store.codexLoginAcknowledged else { fail("Review the Codex login warning in Settings.", retryable: false); return }
+                credentials = .codexLogin(store.codexHome)
+            }
+        } catch { fail(error.localizedDescription, retryable: false); return }
+        transcription.run(credentials: credentials) { [weak self] result in
             guard let self, self.revision == current else { return }
             switch result {
             case .failure(let error): self.fail(error.localizedDescription, retryable: self.transcription.canRetry)

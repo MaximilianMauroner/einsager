@@ -5,14 +5,14 @@ import { signMacApp } from './macos-signing.mjs';
 
 export const nativeSources = [
   'KeyboardShortcuts', 'KeyboardMonitor', 'NativeStore', 'NativeAudio', 'NativeDelivery',
-  'NativeHotKeys', 'NativeTranscription', 'NativeSession', 'NativeStyle', 'NativePill', 'NativeUI', 'NativeApp',
+  'NativeHotKeys', 'NativeProvider', 'NativeTranscription', 'NativeSession', 'NativeStyle', 'NativePill', 'NativeUI', 'NativeApp',
 ].map(name => `apps/desktop/native/macos/${name}.swift`);
 
 export function compileNative(output, { tests = false, extraSources = [] } = {}) {
   const target = `${process.arch === 'arm64' ? 'arm64' : 'x86_64'}-apple-macos13.0`;
   execFileSync('swiftc', ['-j', '1', '-Osize', '-whole-module-optimization', '-target', target,
     ...(tests ? ['-D', 'NATIVE_TESTS'] : []), ...nativeSources, ...extraSources, '-o', output,
-    '-framework', 'AppKit', '-framework', 'Carbon', '-framework', 'AudioToolbox', '-framework', 'AVFoundation'],
+    '-framework', 'Security', '-framework', 'AppKit', '-framework', 'Carbon', '-framework', 'AudioToolbox', '-framework', 'AVFoundation'],
   { stdio: 'inherit', timeout: 180_000 });
 }
 
@@ -48,7 +48,7 @@ export async function packageNative() {
 <key>LSMinimumSystemVersion</key><string>13.0</string>
 <key>LSUIElement</key><true/>
 <key>NSHighResolutionCapable</key><true/>
-<key>NSMicrophoneUsageDescription</key><string>Record speech and send it to ChatGPT for transcription using your Codex login.</string>
+<key>NSMicrophoneUsageDescription</key><string>Record speech and send it to OpenAI for transcription with your selected provider.</string>
 </dict></plist>`);
   // A production build must never contain the synthetic audio/command entry point.
   const strings = execFileSync('/usr/bin/strings', [`${app}/Contents/MacOS/einsager`], { encoding: 'utf8', timeout: 10_000 });

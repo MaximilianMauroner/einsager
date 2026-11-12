@@ -1,3 +1,4 @@
+import type { TranscriptionProvider } from './provider';
 export type DockEdge = 'bottom' | 'top' | 'left' | 'right';
 export type DesktopAction = 'toggle' | 'finish' | 'cancel' | 'retry' | 'copy' | 'hold-pressed' | 'hold-released' | 'hold-interrupted';
 /** When the transcript may stay on the clipboard. Paste always borrows it briefly. */
@@ -27,7 +28,7 @@ export interface Microphone {
 export interface DesktopBridge {
   info(): Promise<DesktopInfo>;
   /** Prepares a session and returns the audio input chosen in Settings, so a change applies to the next recording. */
-  begin(): Promise<{ microphone: string }>;
+  begin(): Promise<{ microphone: string } | { error: string } | { cancelled: true }>;
   transcribe(wav: ArrayBuffer): Promise<TranscriptResult>;
   retry(): Promise<TranscriptResult>;
   cancel(): Promise<void>;
@@ -55,6 +56,8 @@ export interface HistoryEntry {
 }
 
 export interface Settings {
+  provider: TranscriptionProvider;
+  codexLoginAcknowledged: boolean;
   edge: DockEdge;
   clipboard: ClipboardMode;
   keepHistory: boolean;
@@ -68,7 +71,7 @@ export interface Settings {
   codexHome?: string;
 }
 
-export type PanelSettings = Omit<Settings, 'codexHome'>;
+export type PanelSettings = Omit<Settings, 'codexHome' | 'codexLoginAcknowledged'>;
 
 /** The macOS keyboard helper's shortcuts, shown as key names such as "Fn" or "Fn+Space". */
 export interface KeyboardState {
@@ -82,6 +85,7 @@ export interface KeyboardState {
 export type KeyboardCommand = { command: 'capture'; target: 'hold' | 'handsFree' } | { command: 'stopCapture' | 'reset' | 'prompt' };
 
 export interface PanelState {
+  hasApiKey: boolean;
   status: SessionStatus;
   /** Oldest first, so the newest entry sits above the panel's pill. */
   history: HistoryEntry[];
@@ -112,7 +116,11 @@ export interface PanelBridge {
   copy(id: string): Promise<boolean>;
   remove(id: string): Promise<void>;
   clear(): Promise<void>;
-  update(settings: Partial<PanelSettings>): Promise<void>;
+  update(settings: Partial<Omit<PanelSettings, 'provider'>>): Promise<void>;
+  selectProvider(provider: TranscriptionProvider): Promise<void>;
+  importApiKey(): Promise<{ error?: string }>;
+  removeApiKey(): Promise<{ error?: string }>;
+  openProviderLink(link: 'keys' | 'credits'): void;
   chooseCodexHome(): Promise<void>;
   resetCodexHome(): Promise<void>;
   shortcut(command: KeyboardCommand): void;

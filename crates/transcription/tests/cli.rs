@@ -31,6 +31,7 @@ fn empty_codex_home_falls_back_to_home_login() {
     let audio = home.path().join("empty.m4a");
     fs::write(&audio, b"").unwrap();
     let output = Command::new(env!("CARGO_BIN_EXE_einsager-transcribe"))
+        .args(["--provider", "codex-login"])
         .arg(&audio)
         .env("CODEX_HOME", "")
         .env("HOME", home.path())
@@ -41,4 +42,33 @@ fn empty_codex_home_falls_back_to_home_login() {
     // fallback is covered by the injected-home unit test without reading a real login.
     // The audio error proves this fixture login was read; no request is sent.
     assert!(value["error"].as_str().unwrap().contains("nonempty"));
+}
+
+#[test]
+fn api_key_mode_reads_stdin_without_falling_back_to_codex() {
+    use std::{fs, io::Write, process::Stdio};
+    let home = tempfile::TempDir::new().unwrap();
+    let audio = home.path().join("empty.wav");
+    fs::write(&audio, b"").unwrap();
+    let mut child = Command::new(env!("CARGO_BIN_EXE_einsager-transcribe"))
+        .args(["--provider", "api-key"])
+        .arg(audio)
+        .env("CODEX_HOME", home.path())
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap();
+    child
+        .stdin
+        .take()
+        .unwrap()
+        .write_all(b"sk-test-only-key\n")
+        .unwrap();
+    let output = child.wait_with_output().unwrap();
+    assert_eq!(output.status.code(), Some(1));
+    assert!(output.stderr.is_empty());
+    let value: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert!(value["error"].as_str().unwrap().contains("nonempty"));
+    assert!(!String::from_utf8_lossy(&output.stdout).contains("sk-test-only-key"));
 }

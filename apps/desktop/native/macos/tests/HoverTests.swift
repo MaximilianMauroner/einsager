@@ -14,6 +14,7 @@ enum HoverTests {
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: directory) }
         let session = NativeSession(store: NativeStore(directory: directory), helper: directory.appendingPathComponent("unused"))
+        session.store.selectProvider(.codexLogin)
         let ui = NativeUI(session: session, keyboard: KeyboardMonitor())
         ui.showSettings()
         var controls = descendants(ui.panel.contentView!).compactMap { $0 as? ActionButton }

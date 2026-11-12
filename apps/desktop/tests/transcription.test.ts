@@ -13,11 +13,11 @@ async function fixture(source: string) {
   const helper = join(directory, 'helper.cjs');
   await writeFile(helper, source);
   const marker = join(directory, 'audio-path');
-  return { directory, marker, session: new TranscriptionSession({ file: process.execPath, args: [helper] }, { ...process.env, EINSAGER_TEST_PATH: marker }) };
+  return { directory, marker, session: new TranscriptionSession({ file: process.execPath, args: [helper] }, { ...process.env, EINSAGER_TEST_PATH: marker }, async () => ({ provider: 'codex-login', codexHome: '/fixture/codex' })) };
 }
 
 test('helper arguments preserve spaces; successful audio is deleted', async () => {
-  const { directory, marker, session } = await fixture(`const fs = require('fs'); const file = process.argv[2];
+  const { directory, marker, session } = await fixture(`const fs = require('fs'); const file = process.argv[4];
     fs.writeFileSync(process.env.EINSAGER_TEST_PATH, file);
     console.log(JSON.stringify({ text: fs.readFileSync(file).toString() }));`);
   try {
@@ -28,7 +28,7 @@ test('helper arguments preserve spaces; successful audio is deleted', async () =
 });
 
 test('failure retains audio for Retry and cancellation removes it', async () => {
-  const { directory, marker, session } = await fixture(`const fs = require('fs'); const file = process.argv[2];
+  const { directory, marker, session } = await fixture(`const fs = require('fs'); const file = process.argv[4];
     fs.writeFileSync(process.env.EINSAGER_TEST_PATH, file);
     if (!fs.existsSync(file + '.attempt')) { fs.writeFileSync(file + '.attempt', ''); console.log('{"error":"retry me"}'); process.exitCode = 1; }
     else console.log('{"text":"recovered"}');`);
@@ -43,7 +43,7 @@ test('failure retains audio for Retry and cancellation removes it', async () => 
 });
 
 test('a newer recording replaces a running helper without delivering its text', async () => {
-  const { directory, session } = await fixture(`const fs = require('fs'); const text = fs.readFileSync(process.argv[2]).toString();
+  const { directory, session } = await fixture(`const fs = require('fs'); const text = fs.readFileSync(process.argv[4]).toString();
     setTimeout(() => console.log(JSON.stringify({ text })), text === 'old' ? 1000 : 0);`);
   try {
     const old = session.transcribe(new TextEncoder().encode('old').buffer);
@@ -106,4 +106,35 @@ test('temporary directory failure returns a nonretryable recovery error', async 
     await session.cancel();
     await rm(directory, { recursive: true, force: true });
   }
+});
+
+test('API credentials travel only over stdin with explicit provider and no inherited key', async () => {
+  const { directory, session: unused } = await fixture(`let input = ''; process.stdin.on('data', chunk => input += chunk);
+    process.stdin.on('end', () => {
+      const valid = process.argv[2] === '--provider' && process.argv[3] === 'api-key'
+        && !process.argv.join(' ').includes('sk-test-only-key') && !process.env.OPENAI_API_KEY && input === 'sk-test-only-key';
+      console.log(JSON.stringify(valid ? { text: 'Secure API key boundary verified' } : { error: 'Credential boundary failed' }));
+    });`);
+  const session = new TranscriptionSession({ file: process.execPath, args: [join(directory, 'helper.cjs')] },
+    { ...process.env, OPENAI_API_KEY: 'sk-inherited-key-must-not-travel' }, async () => ({ provider: 'api-key', key: 'sk-test-only-key' }));
+  try {
+    assert.deepEqual(await session.transcribe(new Uint8Array([1]).buffer), { text: 'Secure API key boundary verified' });
+  } finally { await unused.cancel(); await session.cancel(); await rm(directory, { recursive: true, force: true }); }
+});
+
+test('cancellation during key lookup prevents a helper launch', async () => {
+  const { directory, marker, session: unused } = await fixture(`require('fs').writeFileSync(process.env.EINSAGER_TEST_PATH, 'started');`);
+  let release: (value: { provider: 'api-key'; key: string }) => void = () => {};
+  let started: () => void = () => {};
+  const ready = new Promise<void>(resolve => { started = resolve; });
+  const session = new TranscriptionSession({ file: process.execPath, args: [join(directory, 'helper.cjs')] },
+    { ...process.env, EINSAGER_TEST_PATH: marker }, () => { started(); return new Promise(resolve => { release = resolve; }); });
+  try {
+    const pending = session.transcribe(new Uint8Array([1]).buffer);
+    await ready;
+    await session.cancel();
+    release({ provider: 'api-key', key: 'sk-test-only-key' });
+    assert.deepEqual(await pending, { cancelled: true });
+    await assert.rejects(readFile(marker), { code: 'ENOENT' });
+  } finally { await unused.cancel(); await session.cancel(); await rm(directory, { recursive: true, force: true }); }
 });

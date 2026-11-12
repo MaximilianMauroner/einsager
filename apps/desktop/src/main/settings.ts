@@ -4,7 +4,7 @@ import { resolve } from 'node:path';
 
 const edges: readonly DockEdge[] = ['bottom', 'top', 'left', 'right'];
 const clipboardModes: readonly ClipboardMode[] = ['always', 'if-paste-fails', 'never'];
-export const defaultSettings: Settings = { edge: 'bottom', clipboard: 'if-paste-fails', keepHistory: true, showPill: true, shortcut: DEFAULT_SHORTCUT, microphone: '' };
+export const defaultSettings: Settings = { provider: 'api-key', codexLoginAcknowledged: false, edge: 'bottom', clipboard: 'if-paste-fails', keepHistory: true, showPill: true, shortcut: DEFAULT_SHORTCUT, microphone: '' };
 
 /** Startup follows CODEX_HOME; Reset explicitly selects the OS user's normal Codex folder. */
 export function codexLoginFolders(settings: Settings, inheritedHome: string | undefined, userHome: string) {
@@ -31,7 +31,12 @@ export function mergeSettings(current: Settings, value: unknown): Settings {
 
 /** Reads settings.json, which also holds the Codex folder chosen in the folder dialog. */
 export function parseStoredSettings(value: unknown): Settings {
-  const settings = mergeSettings(defaultSettings, value);
+  const settings: Settings = { ...mergeSettings(defaultSettings, value), provider: 'codex-login', codexLoginAcknowledged: false };
+  if (typeof value === 'object' && value !== null && !Array.isArray(value)) {
+    settings.provider = 'provider' in value && value.provider === 'api-key' ? 'api-key' : 'codex-login';
+    settings.codexLoginAcknowledged = 'provider' in value && value.provider === 'codex-login'
+      && 'codexLoginAcknowledged' in value && value.codexLoginAcknowledged === true;
+  }
   if (typeof value === 'object' && value !== null && 'codexHome' in value && typeof value.codexHome === 'string') {
     settings.codexHome = value.codexHome;
   }

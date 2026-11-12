@@ -5,8 +5,8 @@
 Hold a key, speak, and the text appears in the field where you were typing.
 einsager is a desktop dictation app for macOS, Windows, and Linux. macOS uses
 a small native app; Windows and Linux use Electron. It
-transcribes with the ChatGPT login that Codex already keeps on your computer,
-so it needs no separate account, subscription, or API key.
+uses an OpenAI API key for the official transcription API. The existing
+Codex login path is available as a secondary option.
 
 > [!WARNING]
 > einsager is an **alpha**. Expect bugs and changes between versions, and read
@@ -14,12 +14,11 @@ so it needs no separate account, subscription, or API key.
 > [report problems](https://github.com/MaximilianMauroner/einsager/issues/new/choose).
 
 > [!IMPORTANT]
-> einsager sends your audio to ChatGPT's internal transcription endpoint, the
-> one that Codex uses. This may violate
-> [OpenAI's terms of use](https://openai.com/policies/eu-terms-of-use/).
-> Whether OpenAI permits this use has not yet been verified. The endpoint is not
-> a public API and can change or stop working at any time. einsager is an
-> independent project, not affiliated with OpenAI or Wispr.
+> The optional Codex login path sends audio to an unofficial ChatGPT endpoint.
+> It may violate [OpenAI's terms of use](https://openai.com/policies/eu-terms-of-use/)
+> and put your account at risk. einsager requires explicit acceptance of this
+> warning before use. The internal endpoint can change or stop working.
+> einsager is an independent project, not affiliated with OpenAI or Wispr.
 
 ## Features
 
@@ -34,9 +33,21 @@ so it needs no separate account, subscription, or API key.
 
 ## Install
 
-You need a ChatGPT login in Codex that is stored in a file, normally
-`~/.codex/auth.json`. Run `codex login` if you do not have one. See
-[Codex login](docs/usage.md#codex-login) if einsager cannot find it.
+Create an [OpenAI API key](https://platform.openai.com/api-keys). After you open
+einsager, select **Settings** and add the key. On macOS, paste it into the secure
+key dialog. Electron imports the key from your clipboard after confirmation
+and clears the clipboard. No key appears in the panel or its saved settings.
+
+API use has separate billing. Eligible paid ChatGPT Pro and Business owners
+can [claim monthly API credits](https://developers.openai.com/api/docs/guides/chatgpt-api-credits).
+The subscription must be at least seven days old. You must own the subscription
+and API organization, and use the same email for both accounts. Limits and expiry
+apply. Plus, Go, and Free do not qualify. A subscription alone does not make all
+API use free.
+
+Existing profiles keep Codex selected and require the warning before their next
+dictation. Changing provider cancels the current recording or upload. einsager
+never changes provider because a key or login fails.
 
 Download the file for your system from the
 [latest release](https://github.com/MaximilianMauroner/einsager/releases/latest):
@@ -98,9 +109,9 @@ and what each platform supports.
 
 ## Known limits
 
-- Transcription depends on an internal ChatGPT endpoint, not a public API. It
+- The optional Codex login path depends on an internal ChatGPT endpoint. It
   can change or stop working at any time.
-- Codex must keep the ChatGPT login in a file. A login in the system keychain
+- For the optional Codex path, Codex must keep the ChatGPT login in a file. A login in the system keychain
   does not work. See [Codex login](docs/usage.md#codex-login).
 - Automatic paste works on macOS and on Linux X11. On Windows and Wayland, you
   paste the transcript yourself.
@@ -115,9 +126,12 @@ and what each platform supports.
 
 ## Privacy
 
-Audio leaves your computer: the bundled helper uploads each recording to
-ChatGPT with your Codex login. The login stays in that helper. History and
-settings stay on your computer, and einsager never stores audio after a
+The bundled helper uploads each recording to the selected OpenAI service.
+API keys stay in macOS Keychain for the native app or in Electron's encrypted
+storage. Electron refuses unencrypted system storage. These stores are separate,
+so switching hosts may require you to add the key again. Keys reach the helper
+through stdin, never command arguments. Codex tokens stay in the helper.
+History and settings stay on your computer, and einsager never stores audio after a
 successful transcription. einsager has no account, analytics, or update check.
 [Details](docs/usage.md#data-and-privacy).
 
@@ -154,6 +168,8 @@ pnpm check                 # types and unit tests
 cargo fmt --check
 cargo test --locked
 cargo clippy --locked --all-targets -- -D warnings
+pnpm test:providers        # Electron provider and secure key import behavior
+pnpm test:native:providers # macOS provider, stdin, and isolated Keychain checks
 pnpm test:desktop          # after pnpm build; on Linux: xvfb-run -a pnpm test:desktop
 pnpm test:packaged         # after pnpm package
 pnpm test:linux            # Linux, with xdotool, under Xvfb or a desktop
