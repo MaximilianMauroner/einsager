@@ -20,7 +20,7 @@
     "test:desktop": "node apps/desktop/tests/smoke.mjs",
     "test:packaged": "node apps/desktop/tests/smoke.mjs --packaged",
     "test:linux": "node apps/desktop/tests/linux-desktop.mjs && node apps/desktop/tests/smoke.mjs --wayland-policy",
-    "test:native": "node apps/desktop/tests/native-macos.mjs",
+    "test:native": "node apps/desktop/tests/native-hover.mjs && node apps/desktop/tests/native-macos.mjs",
     "test:macos": "mkdir -p target/tests && swiftc -j 1 apps/desktop/native/macos/KeyboardShortcuts.swift apps/desktop/native/macos/tests/ShortcutTests.swift -o target/tests/shortcut-tests -framework AppKit && target/tests/shortcut-tests"
   },
   "dependencies": {

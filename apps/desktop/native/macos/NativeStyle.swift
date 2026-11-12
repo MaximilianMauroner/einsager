@@ -169,7 +169,14 @@ class ActionButton: NSControl {
     override var isFlipped: Bool { true }
     override var acceptsFirstResponder: Bool { isEnabled }
     override var canBecomeKeyView: Bool { isEnabled && !isHidden }
-    override var isEnabled: Bool { didSet { needsDisplay = true; setAccessibilityEnabled(isEnabled) } }
+    override var isEnabled: Bool { didSet {
+        if !isEnabled { pressed = false }
+        needsDisplay = true; setAccessibilityEnabled(isEnabled); window?.invalidateCursorRects(for: self)
+    } }
+    var interactionColor: NSColor? {
+        guard isEnabled && (hovered || pressed) else { return nil }
+        return NativeStyle.ink.withAlphaComponent(pressed ? 0.12 : 0.06)
+    }
     var focused: Bool { window?.firstResponder === self }
     var contentWidth: CGFloat { keyCaps ? NativeStyle.keysWidth(title) + 8 : (icon == nil ? 0 : 21) + ceil((title as NSString).size(withAttributes: [.font: NSFont.systemFont(ofSize: textSize, weight: weight)]).width) }
     override var intrinsicContentSize: NSSize { NSSize(width: iconOnly ? 28 : contentWidth, height: keyCaps ? 24 : iconOnly ? 28 : 19) }
@@ -184,6 +191,10 @@ class ActionButton: NSControl {
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
     override func becomeFirstResponder() -> Bool { needsDisplay = true; superview?.needsDisplay = true; return true }
     override func resignFirstResponder() -> Bool { needsDisplay = true; superview?.needsDisplay = true; return true }
+    override func resetCursorRects() {
+        super.resetCursorRects()
+        if isEnabled { addCursorRect(bounds, cursor: .pointingHand) }
+    }
     override func updateTrackingAreas() {
         if let tracking { removeTrackingArea(tracking) }
         let area = NSTrackingArea(rect: .zero, options: [.mouseEnteredAndExited, .activeAlways, .inVisibleRect], owner: self)
@@ -192,7 +203,7 @@ class ActionButton: NSControl {
     override func mouseEntered(with event: NSEvent) { hovered = true; needsDisplay = true }
     override func mouseExited(with event: NSEvent) { hovered = false; needsDisplay = true }
     override func mouseDown(with event: NSEvent) { guard isEnabled else { return }; pressed = true; needsDisplay = true }
-    override func mouseDragged(with event: NSEvent) { pressed = bounds.contains(convert(event.locationInWindow, from: nil)); needsDisplay = true }
+    override func mouseDragged(with event: NSEvent) { guard isEnabled else { return }; pressed = bounds.contains(convert(event.locationInWindow, from: nil)); needsDisplay = true }
     override func mouseUp(with event: NSEvent) {
         let activate = pressed && bounds.contains(convert(event.locationInWindow, from: nil))
         pressed = false; needsDisplay = true
@@ -207,9 +218,9 @@ class ActionButton: NSControl {
         guard !concealed || focused else { return }
         NSGraphicsContext.saveGraphicsState()
         if !isEnabled { NSGraphicsContext.current?.cgContext.setAlpha(0.4) }
-        if (hovered || pressed) && (iconOnly || keyCaps) { NativeStyle.rounded(bounds, radius: 7, fill: NativeStyle.well) }
+        if let interactionColor { NativeStyle.rounded(bounds, radius: 7, fill: interactionColor) }
         if keyCaps { NativeStyle.drawKeys(title, at: NSPoint(x: 4, y: (bounds.height - 19) / 2)) }
-        else if iconOnly { icon?.draw(in: bounds.insetBy(dx: 6, dy: 6), color: hovered ? NativeStyle.ink : tint) }
+        else if iconOnly { icon?.draw(in: bounds.insetBy(dx: 6, dy: 6), color: isEnabled && hovered ? NativeStyle.ink : tint) }
         else {
             let y = (bounds.height - 18) / 2
             if let icon { icon.draw(in: NSRect(x: 0, y: y + 1, width: 16, height: 16), color: tint) }
@@ -230,6 +241,7 @@ final class ToggleSwitch: ActionButton {
     override var intrinsicContentSize: NSSize { NSSize(width: 30, height: 18) }
     override func draw(_ dirtyRect: NSRect) {
         NativeStyle.rounded(bounds, radius: 9, fill: on ? NativeStyle.accent : NativeStyle.color(0x3a3833))
+        if let interactionColor { NativeStyle.rounded(bounds, radius: 9, fill: interactionColor) }
         (on ? NativeStyle.color(0x141414) : NativeStyle.secondary).setFill()
         NSBezierPath(ovalIn: NSRect(x: on ? 14 : 2, y: 2, width: 14, height: 14)).fill()
         if focused { NativeStyle.accent.setStroke(); let p = NSBezierPath(roundedRect: bounds.insetBy(dx: -2, dy: -2), xRadius: 10, yRadius: 10); p.lineWidth = 2; p.stroke() }
@@ -254,6 +266,7 @@ final class RadioOption: ActionButton {
         window?.makeFirstResponder(next); next.invoke()
     }
     override func draw(_ dirtyRect: NSRect) {
+        if let interactionColor { NativeStyle.rounded(bounds, radius: 6, fill: interactionColor) }
         let inset: CGFloat = selected ? 2 : 0.75
         let radio = NSBezierPath(ovalIn: NSRect(x: inset, y: 8 + inset, width: 14 - 2 * inset, height: 14 - 2 * inset))
         (selected ? NativeStyle.accent : NativeStyle.edge).setStroke(); radio.lineWidth = selected ? 4 : 1.5; radio.stroke()
@@ -289,7 +302,7 @@ final class StylePopup: ActionButton {
     }
     override func draw(_ dirtyRect: NSRect) {
         NSGraphicsContext.current?.cgContext.setShouldSmoothFonts(false)
-        if hovered { NativeStyle.rounded(bounds, radius: 6, fill: NativeStyle.well) }
+        if let interactionColor { NativeStyle.rounded(bounds, radius: 6, fill: interactionColor) }
         let string = NSMutableAttributedString(string: selectedTitle, attributes: NativeStyle.attributes(12.5, color: NativeStyle.secondary))
         let paragraph = NSMutableParagraphStyle(); paragraph.lineBreakMode = .byTruncatingTail
         string.addAttribute(.paragraphStyle, value: paragraph, range: NSRange(location: 0, length: string.length))

@@ -42,6 +42,10 @@ private final class CircleButton: ActionButton {
     override func draw(_ dirtyRect: NSRect) {
         (finish ? NativeStyle.color(0xfcfcfb) : NativeStyle.color(0x71716e)).setFill()
         NSBezierPath(ovalIn: bounds).fill()
+        if let interactionColor {
+            (finish ? NativeStyle.base.withAlphaComponent(interactionColor.alphaComponent) : interactionColor).setFill()
+            NSBezierPath(ovalIn: bounds).fill()
+        }
         (finish ? NativeIcon.check : NativeIcon.cancel).draw(in: bounds.insetBy(dx: 3, dy: 3), color: finish ? NativeStyle.raised : NativeStyle.color(0xfcfcfb))
         if focused { NativeStyle.accent.setStroke(); NSBezierPath(ovalIn: bounds.insetBy(dx: -2, dy: -2)).stroke() }
     }
@@ -51,7 +55,8 @@ private final class WaveButton: ActionButton {
     var processing = false
     var starting = false
     override func draw(_ dirtyRect: NSRect) {
-        NativeStyle.rounded(bounds, radius: 18, fill: NativeStyle.raised, stroke: hovered ? NativeStyle.secondary : NativeStyle.edge)
+        NativeStyle.rounded(bounds, radius: 18, fill: NativeStyle.raised, stroke: isEnabled && hovered ? NativeStyle.secondary : NativeStyle.edge)
+        if let interactionColor { NativeStyle.rounded(bounds, radius: 18, fill: interactionColor) }
         NativeStyle.ink.setFill()
         let waveX = bounds.midX - 20.25 + (processing ? -12.5 : starting ? 17 : 0)
         for index in 0..<10 { NSBezierPath(ovalIn: NSRect(x: waveX + CGFloat(index) * 4.25, y: 16.875, width: 2.25, height: 2.25)).fill() }
@@ -379,7 +384,7 @@ private final class FolderButton: ActionButton {
     override var intrinsicContentSize: NSSize { NSSize(width: 338, height: 42) }
     override func draw(_ dirtyRect: NSRect) {
         NSGraphicsContext.current?.cgContext.setShouldSmoothFonts(false)
-        if hovered { NativeStyle.well.setFill(); bounds.fill() }
+        if let interactionColor { interactionColor.setFill(); bounds.fill() }
         let paragraph = NSMutableParagraphStyle(); paragraph.lineBreakMode = .byTruncatingTail
         (title as NSString).draw(in: NSRect(x: 16, y: 13, width: bounds.width - 60, height: 18), withAttributes: [
             .font: NSFont.monospacedSystemFont(ofSize: 11.5, weight: .regular), .foregroundColor: NativeStyle.secondary, .paragraphStyle: paragraph])
