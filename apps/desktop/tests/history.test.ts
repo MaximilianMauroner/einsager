@@ -105,9 +105,9 @@ test('a recording yields its length and a loudness shape, never its audio', () =
 });
 
 test('stored settings keep valid fields; the panel cannot change the Codex folder', () => {
-  assert.deepEqual(parseStoredSettings({ edge: 'left', codexHome: '/codex' }), { ...defaultSettings, edge: 'left', codexHome: '/codex' });
-  assert.deepEqual(parseStoredSettings({ edge: 'middle', clipboard: 'sometimes', keepHistory: 'yes' }), defaultSettings);
-  assert.deepEqual(parseStoredSettings(null), defaultSettings);
+  assert.deepEqual(parseStoredSettings({ edge: 'left', codexHome: '/codex' }), { ...defaultSettings, provider: 'codex-login', edge: 'left', codexHome: '/codex' });
+  assert.deepEqual(parseStoredSettings({ edge: 'middle', clipboard: 'sometimes', keepHistory: 'yes' }), { ...defaultSettings, provider: 'codex-login' });
+  assert.deepEqual(parseStoredSettings(null), { ...defaultSettings, provider: 'codex-login' });
   const current = { ...defaultSettings, codexHome: '/mine' };
   assert.deepEqual(mergeSettings(current, { clipboard: 'never', keepHistory: false, showPill: false, codexHome: '/elsewhere' }),
     { ...current, clipboard: 'never', keepHistory: false, showPill: false });

@@ -17,6 +17,17 @@ enum NativeTests {
     }
 }
 
+final class FixtureApiKeyStorage: ApiKeyStorage {
+    var value: String? = "sk-fixture-only-key"
+    var hasKey: Bool { value != nil }
+    func read() throws -> String {
+        guard let value else { throw AudioFailure(message: "No fixture API key.") }
+        return value
+    }
+    func save(_ value: String) throws { self.value = try validatedApiKey(value) }
+    func remove() throws { value = nil }
+}
+
 final class NativeTestDriver {
     let session: NativeSession
     private var recording: PCMRecording?
@@ -30,7 +41,7 @@ final class NativeTestDriver {
     init(profile: URL, helper: URL) throws {
         let board = NSPasteboard(name: NSPasteboard.Name("einsager-native-test-\(UUID())"))
         self.board = board
-        session = NativeSession(store: NativeStore(directory: profile), helper: helper, delivery: NativeDelivery(board: board))
+        session = NativeSession(store: NativeStore(directory: profile), helper: helper, delivery: NativeDelivery(board: board), apiKeys: FixtureApiKeyStorage())
         session.captureTarget = { nil }
         session.requestPermission = { [weak self] callback in
             guard let self else { return }
@@ -86,6 +97,17 @@ final class NativeTestDriver {
             case "start": session.start(hold: command["hold"] as? Bool ?? false)
             case "append": append(seconds: min(601, max(0, command["seconds"] as? Double ?? 1)))
             case "toggle", "finish", "cancel", "retry", "copy", "holdPressed", "holdReleased", "interrupted": session.act(name)
+            case "providerConsent": session.confirmCodex = { command["accept"] as? Bool == true }
+            case "keychain":
+                let keychain = KeychainApiKey(profile: session.store.directory.appendingPathComponent("keychain-fixture-\(UUID())"))
+                defer { try? keychain.remove() }
+                try keychain.save("sk-fixture-keychain-only")
+                guard keychain.hasKey, try keychain.read() == "sk-fixture-keychain-only" else {
+                    throw AudioFailure(message: "Keychain did not preserve the test key.")
+                }
+                try keychain.remove()
+                guard !keychain.hasKey else { throw AudioFailure(message: "Keychain did not remove the test key.") }
+                result["verified"] = true
             case "settings":
                 if let values = command["values"] as? [String: Any] { for (key, value) in values { session.store.update(key, value) } }
             case "addHistory":
@@ -257,6 +279,35 @@ final class NativeTestDriver {
         let folder = session.store.directory.appendingPathComponent("unit-profile")
         try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: folder) }
+        let fresh = NativeStore(directory: folder)
+        try expect(fresh.provider == .apiKey && !fresh.codexLoginAcknowledged, "New profiles select the official API")
+        try JSONSerialization.data(withJSONObject: ["clipboard": "always"]).write(to: folder.appendingPathComponent("settings.json"))
+        let legacy = NativeStore(directory: folder)
+        try expect(legacy.provider == .codexLogin && !legacy.codexLoginAcknowledged, "Existing profiles keep Codex and require consent")
+        let keyStore = FixtureApiKeyStorage()
+        let gated = NativeSession(store: legacy, helper: session.transcription.helper, apiKeys: keyStore)
+        var permissionCalls = 0
+        gated.requestPermission = { _ in permissionCalls += 1 }
+        gated.start(hold: false)
+        try expect(gated.phase == .idle && permissionCalls == 0 && gated.transcription.directory == nil, "Cancel blocks recording and helper launch")
+        gated.confirmCodex = { true }
+        gated.start(hold: false)
+        try expect(permissionCalls == 1 && legacy.codexLoginAcknowledged, "Explicit consent permits recording")
+        try expect(NativeStore(directory: folder).codexLoginAcknowledged, "Codex consent survives restart")
+        gated.cancel()
+        legacy.update("codexLoginAcknowledged", false)
+        gated.start(hold: true)
+        try expect(gated.phase == .message && permissionCalls == 1, "Consent cannot leave a released hold key recording")
+        gated.cancel()
+        legacy.selectProvider(.apiKey)
+        try keyStore.remove()
+        gated.start(hold: false)
+        try expect(gated.phase == .failure && permissionCalls == 1, "Missing API key never falls back to Codex")
+        try expect(!legacy.codexLoginAcknowledged, "Selecting the API clears Codex consent")
+        for key in ["", "bad-key", "sk-test-key\r\nX-Header: secret", "sk-" + String(repeating: "a", count: 4096)] {
+            do { _ = try validatedApiKey(key); throw AudioFailure(message: "Invalid key was accepted") }
+            catch let error as AudioFailure { try expect(error.message == "Enter a valid OpenAI API key.", "Key validation gives a fixed error") }
+        }
         let valid: [String: Any] = ["id": "existing", "text": "Keep this", "at": 1000, "seconds": 2, "voiceprint": [0, 0.5, 1]]
         let invalid: [String: Any] = ["id": "bad", "text": "Reject", "at": 1000, "seconds": 2, "voiceprint": [2]]
         try JSONSerialization.data(withJSONObject: [valid, invalid, ["broken": true]]).write(to: folder.appendingPathComponent("history.json"))

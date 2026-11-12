@@ -11,9 +11,42 @@ use std::{
     time::Duration,
 };
 
-const ENDPOINT: &str = "https://chatgpt.com/backend-api/transcribe";
+const CODEX_ENDPOINT: &str = "https://chatgpt.com/backend-api/transcribe";
+const API_ENDPOINT: &str = "https://api.openai.com/v1/audio/transcriptions";
+const MAX_KEY_BYTES: u64 = 4096;
 const MAX_AUDIO_BYTES: u64 = 25 * 1024 * 1024;
-const USAGE: &str = "Usage: einsager-transcribe recording.m4a (or recording.wav)";
+const USAGE: &str = "Usage: einsager-transcribe --provider api-key|codex-login recording.wav (or recording.m4a). API keys are read from stdin.";
+
+enum Credentials {
+    ApiKey(String),
+    CodexLogin(Tokens),
+}
+
+impl Credentials {
+    fn label(&self) -> &'static str {
+        match self {
+            Self::ApiKey(_) => "OpenAI API",
+            Self::CodexLogin(_) => "Codex",
+        }
+    }
+}
+
+fn read_api_key(input: impl Read) -> Result<String, String> {
+    let mut key = String::new();
+    input
+        .take(MAX_KEY_BYTES + 1)
+        .read_to_string(&mut key)
+        .map_err(|_| "Cannot read OpenAI API key from stdin.")?;
+    let value = key.trim();
+    if key.len() > MAX_KEY_BYTES as usize
+        || !value.starts_with("sk-")
+        || value.len() < 10
+        || !value.bytes().all(|byte| byte.is_ascii_graphic())
+    {
+        return Err("Enter a valid OpenAI API key in Settings.".into());
+    }
+    Ok(value.into())
+}
 
 #[derive(Deserialize)]
 struct Auth {
@@ -71,49 +104,81 @@ fn read_audio(audio_path: &Path) -> Result<multipart::Part, String> {
         .map_err(|_| "Cannot prepare recording for transcription.".into())
 }
 
-fn transcribe(audio_path: &Path, auth_home: &Path, endpoint: &str) -> Result<String, String> {
-    let tokens = read_login(auth_home)?;
+fn transcribe(
+    audio_path: &Path,
+    credentials: &Credentials,
+    endpoint: &str,
+) -> Result<String, String> {
+    let label = credentials.label();
     let audio = read_audio(audio_path)?;
     let client = Client::builder()
         .timeout(Duration::from_secs(90))
         .user_agent(concat!("einsager/", env!("CARGO_PKG_VERSION")))
         .redirect(reqwest::redirect::Policy::none())
         .build()
-        .map_err(|_| "Cannot start Codex transcription connection.")?;
-    let mut request = client
-        .post(endpoint)
-        .bearer_auth(tokens.access_token)
-        .header("originator", "Codex Desktop")
-        .multipart(multipart::Form::new().part("file", audio));
-    if let Some(account_id) = tokens.account_id.filter(|value| !value.is_empty()) {
-        request = request.header("ChatGPT-Account-ID", account_id);
-    }
+        .map_err(|_| format!("Cannot start {label} transcription connection."))?;
+    let form = multipart::Form::new().part("file", audio);
+    let request = client.post(endpoint);
+    let request = match credentials {
+        Credentials::ApiKey(key) => request.bearer_auth(key).multipart(
+            form.text("model", "gpt-transcribe")
+                .text("response_format", "json"),
+        ),
+        Credentials::CodexLogin(tokens) => {
+            let mut request = request
+                .bearer_auth(&tokens.access_token)
+                .header("originator", "Codex Desktop");
+            if let Some(account_id) = tokens.account_id.as_ref().filter(|value| !value.is_empty()) {
+                request = request.header("ChatGPT-Account-ID", account_id);
+            }
+            request.multipart(form)
+        }
+    };
     let response = request
         .send()
-        .map_err(|_| "Codex transcription connection failed or timed out.")?;
+        .map_err(|_| format!("{label} transcription connection failed or timed out."))?;
     let status = response.status().as_u16();
     if status != 200 {
-        let hint = if status == 401 {
-            " Run codex login again."
-        } else {
-            ""
+        let hint = match (credentials, status) {
+            (Credentials::ApiKey(_), 401 | 403) => {
+                " Check your API key and project permissions in Settings."
+            }
+            (Credentials::ApiKey(_), 429) => " Check API billing, credit balance, and rate limits.",
+            (Credentials::CodexLogin(_), 401) => " Run codex login again.",
+            _ => "",
         };
-        return Err(format!("Codex transcription returned HTTP {status}.{hint}"));
+        return Err(format!(
+            "{label} transcription returned HTTP {status}.{hint}"
+        ));
     }
     response
         .json::<Transcript>()
         .map(|result| result.text)
-        .map_err(|_| "Codex returned an unexpected transcription response.".into())
+        .map_err(|_| format!("{label} returned an unexpected transcription response."))
 }
 
 fn run() -> Result<String, String> {
     let mut args = env::args_os().skip(1);
+    if args.next().as_deref() != Some(std::ffi::OsStr::new("--provider")) {
+        return Err(USAGE.into());
+    }
+    let provider = args.next().ok_or(USAGE)?;
     let audio = args.next().ok_or(USAGE)?;
     if args.next().is_some() {
         return Err(USAGE.into());
     }
-    let auth_home = auth_home(env::var_os("CODEX_HOME"), dirs::home_dir())?;
-    transcribe(Path::new(&audio), &auth_home, ENDPOINT)
+    let (credentials, endpoint) = match provider.to_str() {
+        Some("api-key") => (
+            Credentials::ApiKey(read_api_key(std::io::stdin().lock())?),
+            API_ENDPOINT,
+        ),
+        Some("codex-login") => {
+            let home = auth_home(env::var_os("CODEX_HOME"), dirs::home_dir())?;
+            (Credentials::CodexLogin(read_login(&home)?), CODEX_ENDPOINT)
+        }
+        _ => return Err(USAGE.into()),
+    };
+    transcribe(Path::new(&audio), &credentials, endpoint)
 }
 
 /// Codex uses CODEX_HOME or .codex in the OS user's home, including USERPROFILE on Windows.

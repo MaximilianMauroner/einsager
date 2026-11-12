@@ -2,7 +2,7 @@
 // This uses Chromium's fake microphone and an empty Codex folder, never a real login.
 import { _electron as electron, expect } from '@playwright/test';
 import assert from 'node:assert/strict';
-import { mkdtemp, readFile, rm, mkdir } from 'node:fs/promises';
+import { mkdtemp, readFile, rm, mkdir, writeFile } from 'node:fs/promises';
 import { homedir, tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 
@@ -28,6 +28,7 @@ const savedSettings = () => readFile(join(profile, 'settings.json'), 'utf8').the
 await mkdir(codex);
 // Inherited CODEX_HOME must also enable Reset, even without a folder chosen in settings.
 await mkdir(profile);
+await writeFile(join(profile, 'settings.json'), JSON.stringify({ provider: 'codex-login', codexLoginAcknowledged: true }));
 await mkdir('.agents/artifacts', { recursive: true });
 let application;
 // The app's own output explains a failure that Playwright reports only as a timeout.

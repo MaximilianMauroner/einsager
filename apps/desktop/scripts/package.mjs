@@ -33,7 +33,7 @@ try {
     platform: process.platform, arch: process.arch, electronVersion: metadata.devDependencies.electron,
     prune: false, extraResource: helpers, icon,
     appBundleId: 'local.max.einsager.desktop',
-    extendInfo: { NSMicrophoneUsageDescription: 'Record speech and send it to ChatGPT for transcription using your Codex login.' },
+    extendInfo: { NSMicrophoneUsageDescription: 'Record speech and send it to OpenAI for transcription with your selected provider.' },
   });
   // Packaging edits Info.plist, so the finished bundle needs a fresh signature.
   if (process.platform === 'darwin') {

@@ -3,7 +3,7 @@
 einsager uses Chromium for microphone recording and Electron for its clipboard,
 pill, tray, and shortcuts. Linux-specific code is in
 [`apps/desktop/src/main/linux/desktop.ts`](../apps/desktop/src/main/linux/desktop.ts).
-The [usage guide](usage.md) covers the Codex login, settings, and data handling.
+The [usage guide](usage.md) covers API key setup, the optional Codex login, settings, and data handling.
 
 ## Install
 
@@ -115,7 +115,7 @@ Before recording, the app captures the focused X11 window and its process ID.
 After transcription it writes the clipboard, checks that the same window/process
 still has focus and the clipboard still holds this transcript, and sends Ctrl+V
 directly to that window. It does not activate another window or send Enter.
-Cancel, a new recording, changing the Codex folder, and quit invalidate the old
+Cancel, a new recording, a service or credential change, and quit invalidate the old
 target and abort pending command work. Retry retains the original target; it
 does not select a new application for insertion.
 
@@ -153,7 +153,7 @@ Tray visibility depends on the desktop shell. Some GNOME setups need an
 AppIndicator extension. The pill's right-click menu has the same controls,
 including Quit and **History and settings…**, so recording does not require a
 visible tray icon. **History and settings…** opens the tray panel. Set docking,
-the microphone, and the Codex folder in its Settings. No desktop-shell extension
+the microphone, and the transcription service in its Settings. No desktop-shell extension
 is installed by the app.
 
 Enable the microphone in the system's sound settings. **System default** in
@@ -170,7 +170,7 @@ blank editor and the Wayland fallback policy under Xvfb. The latter verifies cod
 paths, not a real Wayland compositor. Both use test text and no Codex credentials.
 The same command checks that quitting before startup completes exits the process.
 
-Real microphone capture, ChatGPT transcription, keyboard portal permission,
+Real microphone capture, OpenAI transcription, keyboard portal permission,
 desktop-shell tray behavior, compositor placement, and insertion in daily-use
 Linux applications still need acceptance in those desktop sessions. Build and
 virtual-display checks do not establish full distribution or compositor coverage.

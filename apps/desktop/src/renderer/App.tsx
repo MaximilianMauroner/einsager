@@ -123,8 +123,11 @@ export function App() {
     mode.current = next;
     setHolding(next === 'hold');
     try {
-      const { microphone: input } = await api.begin();
+      const prepared = await api.begin();
       if (id !== generation.current) return;
+      if ('cancelled' in prepared) { change('idle'); return; }
+      if ('error' in prepared) { change('failure', prepared.error); return; }
+      const { microphone: input } = prepared;
       const microphone = await MicrophoneRecording.start(input, (level, seconds) => {
         setLevels(previous => [...previous.slice(1), level]);
         setSecondsLeft(seconds >= RECORDING_SECONDS - 60 ? Math.ceil(RECORDING_SECONDS - seconds) : undefined);

@@ -4,6 +4,8 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { TranscriptResult } from '../shared/contract.ts';
 
+export type TranscriptionCredentials = { provider: 'api-key'; key: string } | { provider: 'codex-login'; codexHome?: string };
+
 export const MAX_AUDIO_BYTES = 25 * 1024 * 1024;
 
 /** Owns one temporary recording and helper process. Old completions cannot deliver text. */
@@ -14,10 +16,14 @@ export class TranscriptionSession {
 
   private helper: { file: string; args?: string[] };
   private environment: NodeJS.ProcessEnv;
+  private readonly credentials: () => Promise<TranscriptionCredentials>;
 
-  constructor(helper: { file: string; args?: string[] }, environment = process.env) {
+  constructor(helper: { file: string; args?: string[] }, environment: NodeJS.ProcessEnv,
+    credentials: () => Promise<TranscriptionCredentials>) {
     this.helper = helper;
-    this.environment = environment;
+    this.environment = { ...environment };
+    delete this.environment.OPENAI_API_KEY;
+    this.credentials = credentials;
   }
 
   async transcribe(audio: ArrayBuffer): Promise<TranscriptResult> {
@@ -66,9 +72,14 @@ export class TranscriptionSession {
 
   private async run(generation: number, directory: string): Promise<TranscriptResult> {
     if (generation !== this.generation) return { cancelled: true };
+    let credentials: TranscriptionCredentials;
+    try { credentials = await this.credentials(); }
+    catch (error) { return generation !== this.generation ? { cancelled: true }
+      : { error: error instanceof Error ? error.message : 'Configure transcription in Settings.', retryable: false }; }
+    if (generation !== this.generation) return { cancelled: true };
     const result = await new Promise<TranscriptResult>(resolve => {
-      this.child = execFile(this.helper.file, [...(this.helper.args ?? []), join(directory, 'recording.wav')], {
-        env: this.environment, timeout: 100_000, maxBuffer: 4 * 1024 * 1024, windowsHide: true,
+      this.child = execFile(this.helper.file, [...(this.helper.args ?? []), '--provider', credentials.provider, join(directory, 'recording.wav')], {
+        env: { ...this.environment, ...(credentials.provider === 'codex-login' ? { CODEX_HOME: credentials.codexHome } : {}) }, timeout: 100_000, maxBuffer: 4 * 1024 * 1024, windowsHide: true,
       }, (error, stdout) => {
         if (generation !== this.generation) { resolve({ cancelled: true }); return; }
         this.child = undefined;
@@ -85,6 +96,8 @@ export class TranscriptionSession {
         } catch { /* A missing or crashed helper has no JSON response. */ }
         resolve({ error: 'Transcription helper failed or timed out. Retry, or rebuild einsager.', retryable: true });
       });
+      this.child.stdin?.on('error', () => {});
+      this.child.stdin?.end(credentials.provider === 'api-key' ? credentials.key : undefined);
     });
     if ('text' in result && generation === this.generation) {
       await this.discardResources();

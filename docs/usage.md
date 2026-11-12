@@ -1,6 +1,6 @@
 # Using einsager
 
-This guide covers daily use, settings, the Codex login, data handling, and
+This guide covers daily use, settings, API keys, the optional Codex login, data handling, and
 platform limits. To install einsager, see the [README](../README.md#install).
 On Linux, also read [Linux setup and limits](linux.md).
 
@@ -45,6 +45,9 @@ transcript**, **History and settings…**, and **Quit einsager**.
 
 ## Settings
 
+- **Transcription** selects the service. **OpenAI API key** is the default for
+  new profiles. The secondary **Codex login · unofficial** option opens a
+  warning before you can use it. See [Transcription setup](#transcription-setup).
 - **Shortcut** (Linux and Windows) or **Fallback** (macOS): the hands-free
   shortcut, **Ctrl+Alt+Space** by default. Click it and press a key with Ctrl,
   Alt, Cmd, or Super, or a function key alone. Esc cancels.
@@ -66,14 +69,63 @@ transcript**, **History and settings…**, and **Quit einsager**.
   It still appears for a recording or a result.
 - **Dock the pill**: bottom, top, left, or right. You can also drag the pill to
   an edge. Wayland does not allow this.
-- **Codex login folder**: see [Codex login](#codex-login). **Reset to
+- **Codex login folder** appears only when Codex login is selected. See [Codex login](#codex-login). **Reset to
   default** selects your normal `.codex` folder, including when the app inherited
   a different `CODEX_HOME`. It is disabled only while that normal folder is
   already selected. The reset persists across app restarts.
 
+## Transcription setup
+
+### Add an OpenAI API key
+
+1. Create a key on the [OpenAI API keys page](https://platform.openai.com/api-keys).
+2. Open einsager's **Settings**.
+3. On native macOS, click **Add API key…** and paste the key into the secure dialog.
+   Click **Save and use API key**.
+4. On Windows, Linux, or the macOS Electron fallback, copy the key first.
+   Click **Add from clipboard…**, then **Save and use API key** to confirm.
+   einsager clears the clipboard after it saves the key.
+
+Saving a key selects the official API. Use **Replace API key…** on native macOS
+or **Replace from clipboard…** in Electron to change it. **Remove API key**
+deletes the saved key. It does not revoke the key at OpenAI. Revoke an exposed
+key on the API keys page.
+
+API use has separate billing. Eligible ChatGPT Pro and Business owners can
+[claim subscription API credits](https://developers.openai.com/api/docs/guides/chatgpt-api-credits).
+The paid subscription must be at least seven days old. You must own the
+subscription and the receiving API organization, with the same email for both.
+Use a project key from that organization. Credit amounts depend on the plan.
+Unused credits expire at the end of the billing cycle. Plus, Go, and Free do
+not qualify. Requests use purchased API credits after free credits run out. If you enable
+auto recharge, OpenAI can charge your payment method for more credits.
+
+If the app reports HTTP 401 or 403, check the key and its project permissions.
+For HTTP 429, check the organization's credit balance and rate limits.
+On Linux, einsager refuses to save a key if system encryption is unavailable
+or uses the unencrypted `basic_text` backend. Unlock or configure your system
+key store, then restart einsager.
+
+### Change the service
+
+Select **OpenAI API key** to use a saved key. Select **Codex login · unofficial**
+to open the warning. **Cancel** leaves the current service selected.
+**Continue with Codex login** accepts the warning and selects Codex.
+Changing the service or its credentials cancels an active recording or upload.
+A failed key or login never causes an automatic switch to another service.
+
+Existing profiles keep Codex selected. Their first dictation requires explicit
+warning acceptance. On native macOS, if a held shortcut opens the warning,
+accept it and start dictation again.
+
 ## Codex login
 
-einsager uses the ChatGPT login that Codex keeps in a file. It looks for:
+> [!WARNING]
+> This optional path uses an unofficial ChatGPT endpoint. It may violate
+> [OpenAI's terms of use](https://openai.com/policies/eu-terms-of-use/) and put
+> your account at risk. Use the API key option for the official API.
+
+After you accept the warning, einsager uses the ChatGPT login that Codex keeps in a file. It looks for:
 
 - `$CODEX_HOME/auth.json`, when `CODEX_HOME` is set and not empty.
 - `~/.codex/auth.json` on macOS and Linux.
@@ -143,11 +195,16 @@ The installer replaces the app at the same path and does not keep renamed
 
 ## Data and privacy
 
-- **Audio leaves your computer.** The helper uploads each recording with your
-  Codex login to `https://chatgpt.com/backend-api/transcribe`. This is the
-  internal endpoint that Codex uses, not a public API. It can change or stop
-  working without notice. One response from this service gave the uploaded
-  audio a 30-day lifetime, so do not expect it to be deleted at once.
+- **Audio leaves your computer.** With an API key, the helper sends audio to
+  `https://api.openai.com/v1/audio/transcriptions`. With Codex login, it sends
+  audio to `https://chatgpt.com/backend-api/transcribe`. The Codex endpoint is
+  internal and can change without notice. OpenAI's service data rules apply.
+  Do not assume that OpenAI deletes audio when einsager deletes its local copy.
+- **API keys** stay in macOS Keychain for the native app. Electron saves keys
+  with system encryption in the app's data folder. The stores are separate.
+  If you switch between native macOS and Electron, add the key in each host.
+  Keys reach the helper through stdin. They do not appear in command arguments,
+  renderer state, or `settings.json`. Codex login tokens remain in the helper.
 - **Recordings** are 16 kHz mono WAV files in an `einsager-*` temporary folder.
   einsager deletes a recording after success, cancel, a new dictation, or Quit.
   A failed transcription keeps it for Retry. A force-quit can leave it behind.

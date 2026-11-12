@@ -23,6 +23,12 @@ final class NativeStore {
                 attributes: [.posixPermissions: 0o700])
             if let data = try? Data(contentsOf: directory.appendingPathComponent("settings.json")),
                let stored = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] { settings = stored }
+            if !settings.isEmpty || FileManager.default.fileExists(atPath: directory.appendingPathComponent("settings.json").path) {
+                if settings["provider"] as? String != "api-key" && settings["provider"] as? String != "codex-login" {
+                    settings["provider"] = "codex-login"
+                    settings["codexLoginAcknowledged"] = false
+                }
+            } else { settings["provider"] = "api-key" }
             let file = directory.appendingPathComponent("history.json")
             if FileManager.default.fileExists(atPath: file.path) {
                 do {
@@ -41,6 +47,14 @@ final class NativeStore {
                 }
             }
         } catch { fputs("Cannot load einsager profile: \(error.localizedDescription)\n", stderr) }
+    }
+
+    var provider: TranscriptionProvider { TranscriptionProvider(rawValue: string("provider")) ?? .apiKey }
+    var codexLoginAcknowledged: Bool { provider == .codexLogin && settings["codexLoginAcknowledged"] as? Bool == true }
+
+    func selectProvider(_ provider: TranscriptionProvider) {
+        settings["codexLoginAcknowledged"] = provider == .codexLogin
+        update("provider", provider.rawValue)
     }
 
     var edge: String { ["bottom", "top", "left", "right"].contains(string("edge")) ? string("edge") : "bottom" }

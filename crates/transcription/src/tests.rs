@@ -2,6 +2,10 @@ use super::*;
 use std::{fs, io::Write, net::TcpListener, thread};
 use tempfile::TempDir;
 
+fn transcribe_codex(audio: &Path, home: &Path, endpoint: &str) -> Result<String, String> {
+    transcribe(audio, &Credentials::CodexLogin(read_login(home)?), endpoint)
+}
+
 #[test]
 fn codex_home_overrides_each_platform_home_without_touching_credentials() {
     for home in ["/home/test", "/Users/test", "C:\\Users\\test"] {
@@ -81,7 +85,7 @@ fn m4a_request_matches_codex_protocol() {
     let (dir, audio) = fixture("m4a");
     let (endpoint, request) = server("200 OK", r#"{"text":"Grüße from Rust"}"#, "");
     assert_eq!(
-        transcribe(&audio, dir.path(), &endpoint).unwrap(),
+        transcribe_codex(&audio, dir.path(), &endpoint).unwrap(),
         "Grüße from Rust"
     );
     let request = request.join().unwrap().to_ascii_lowercase();
@@ -109,7 +113,7 @@ fn wav_and_login_without_account_remain_supported() {
     .unwrap();
     let (endpoint, request) = server("200 OK", r#"{"text":"WAV transcript","extra":true}"#, "");
     assert_eq!(
-        transcribe(&audio, dir.path(), &endpoint).unwrap(),
+        transcribe_codex(&audio, dir.path(), &endpoint).unwrap(),
         "WAV transcript"
     );
     let request = request.join().unwrap().to_ascii_lowercase();
@@ -123,7 +127,7 @@ fn invalid_audio_is_rejected_before_network_use() {
     let (dir, audio) = fixture("m4a");
     fs::write(&audio, b"").unwrap();
     assert!(
-        transcribe(&audio, dir.path(), "http://127.0.0.1:1")
+        transcribe_codex(&audio, dir.path(), "http://127.0.0.1:1")
             .unwrap_err()
             .contains("nonempty")
     );
@@ -132,14 +136,14 @@ fn invalid_audio_is_rejected_before_network_use() {
         .set_len(MAX_AUDIO_BYTES + 1)
         .unwrap();
     assert!(
-        transcribe(&audio, dir.path(), "http://127.0.0.1:1")
+        transcribe_codex(&audio, dir.path(), "http://127.0.0.1:1")
             .unwrap_err()
             .contains("25 MiB")
     );
     let unsupported = audio.with_extension("txt");
     fs::rename(audio, &unsupported).unwrap();
     assert!(
-        transcribe(&unsupported, dir.path(), "http://127.0.0.1:1")
+        transcribe_codex(&unsupported, dir.path(), "http://127.0.0.1:1")
             .unwrap_err()
             .contains("WAV or M4A")
     );
@@ -244,7 +248,7 @@ fn streaming_upload_memory_probe() {
     println!("UPLOAD_MEMORY_PROBE pid={}", std::process::id());
     thread::sleep(Duration::from_millis(500));
     assert_eq!(
-        transcribe(&audio, dir.path(), &endpoint).unwrap(),
+        transcribe_codex(&audio, dir.path(), &endpoint).unwrap(),
         "Memory probe"
     );
     receiver.join().unwrap();
@@ -257,7 +261,7 @@ fn invalid_login_is_rejected_before_network_use() {
     for auth in ["not json", "{}", r#"{"tokens":{"access_token":""}}"#] {
         fs::write(dir.path().join("auth.json"), auth).unwrap();
         assert!(
-            transcribe(&audio, dir.path(), "http://127.0.0.1:1")
+            transcribe_codex(&audio, dir.path(), "http://127.0.0.1:1")
                 .unwrap_err()
                 .contains("login")
         );
@@ -271,7 +275,7 @@ fn auth_failure_reports_recovery_without_response_or_token() {
     let (dir, audio) = fixture("m4a");
     let (endpoint, request) = server("401 Unauthorized", "private server detail", "");
     assert_eq!(
-        transcribe(&audio, dir.path(), &endpoint).unwrap_err(),
+        transcribe_codex(&audio, dir.path(), &endpoint).unwrap_err(),
         "Codex transcription returned HTTP 401. Run codex login again."
     );
     request.join().unwrap();
@@ -288,7 +292,7 @@ fn redirects_never_forward_login() {
     );
     let (endpoint, request) = server("302 Found", "", &location);
     assert_eq!(
-        transcribe(&audio, dir.path(), &endpoint).unwrap_err(),
+        transcribe_codex(&audio, dir.path(), &endpoint).unwrap_err(),
         "Codex transcription returned HTTP 302."
     );
     request.join().unwrap();
@@ -304,7 +308,7 @@ fn malformed_responses_are_recoverable() {
     for body in ["not json", r#"{"text":null}"#, r#"{"text":5}"#, "[]", "{}"] {
         let (endpoint, request) = server("200 OK", body, "");
         assert_eq!(
-            transcribe(&audio, dir.path(), &endpoint).unwrap_err(),
+            transcribe_codex(&audio, dir.path(), &endpoint).unwrap_err(),
             "Codex returned an unexpected transcription response."
         );
         request.join().unwrap();
@@ -318,7 +322,68 @@ fn connection_failure_does_not_expose_credentials() {
     let endpoint = format!("http://{}", listener.local_addr().unwrap());
     drop(listener);
     assert_eq!(
-        transcribe(&audio, dir.path(), &endpoint).unwrap_err(),
+        transcribe_codex(&audio, dir.path(), &endpoint).unwrap_err(),
         "Codex transcription connection failed or timed out."
     );
+}
+
+#[test]
+fn api_key_uses_official_multipart_contract_without_codex_headers() {
+    let (_dir, audio) = fixture("wav");
+    let (endpoint, request) = server("200 OK", r#"{"text":"Official API transcript"}"#, "");
+    let credentials = Credentials::ApiKey("sk-test-only-key".into());
+    assert_eq!(
+        transcribe(&audio, &credentials, &endpoint).unwrap(),
+        "Official API transcript"
+    );
+    let request = request.join().unwrap().to_ascii_lowercase();
+    for expected in [
+        "authorization: bearer sk-test-only-key",
+        "name=\"model\"\r\n\r\ngpt-transcribe",
+        "name=\"response_format\"\r\n\r\njson",
+        "filename=\"dictation.wav\"",
+        "content-type: audio/wav",
+    ] {
+        assert!(request.contains(expected), "missing {expected}");
+    }
+    assert!(!request.contains("originator:"));
+    assert!(!request.contains("chatgpt-account-id:"));
+}
+
+#[test]
+fn api_key_errors_never_include_server_body_or_credentials() {
+    let (_dir, audio) = fixture("wav");
+    let credentials = Credentials::ApiKey("sk-test-only-key".into());
+    for (status, hint) in [
+        ("401 Unauthorized", "Check your API key"),
+        ("429 Too Many Requests", "Check API billing"),
+        ("500 Internal Server Error", "HTTP 500"),
+        ("302 Found", "HTTP 302"),
+    ] {
+        let (endpoint, request) = server(status, "sk-test-only-key private detail", "");
+        let error = transcribe(&audio, &credentials, &endpoint).unwrap_err();
+        assert!(error.contains(hint));
+        assert!(!error.contains("sk-test-only-key"));
+        assert!(!error.contains("private detail"));
+        request.join().unwrap();
+    }
+}
+
+#[test]
+fn api_key_input_is_bounded_and_rejects_header_injection() {
+    assert_eq!(
+        read_api_key(" sk-test-only-key\n".as_bytes()).unwrap(),
+        "sk-test-only-key"
+    );
+    for value in [
+        "",
+        "not-a-key",
+        "sk-abc",
+        "sk-test-key\r\nx-header: injected",
+        "sk-test key",
+    ] {
+        let error = read_api_key(value.as_bytes()).unwrap_err();
+        assert_eq!(error, "Enter a valid OpenAI API key in Settings.");
+    }
+    assert!(read_api_key(format!("sk-{}", "a".repeat(4096)).as_bytes()).is_err());
 }

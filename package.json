@@ -5,7 +5,7 @@
   "packageManager": "pnpm@11.28.2",
   "type": "module",
   "engines": { "node": ">=22.18.0" },
-  "description": "Desktop dictation using your local Codex login",
+  "description": "Desktop dictation with an OpenAI API key or Codex login",
   "license": "MIT",
   "main": "apps/desktop/dist/main.cjs",
   "scripts": {
@@ -17,9 +17,11 @@
     "package": "node apps/desktop/scripts/package.mjs",
     "install:macos": "node apps/desktop/scripts/install-macos.mjs",
     "preview": "vite --host 0.0.0.0 --config apps/desktop/vite.config.ts",
+    "test:providers": "node apps/desktop/tests/providers.mjs",
     "test:desktop": "node apps/desktop/tests/smoke.mjs",
     "test:packaged": "node apps/desktop/tests/smoke.mjs --packaged",
     "test:linux": "node apps/desktop/tests/linux-desktop.mjs && node apps/desktop/tests/smoke.mjs --wayland-policy",
+    "test:native:providers": "node apps/desktop/tests/native-providers.mjs",
     "test:native": "node apps/desktop/tests/native-hover.mjs && node apps/desktop/tests/native-macos.mjs",
     "test:macos": "mkdir -p target/tests && swiftc -j 1 apps/desktop/native/macos/KeyboardShortcuts.swift apps/desktop/native/macos/tests/ShortcutTests.swift -o target/tests/shortcut-tests -framework AppKit && target/tests/shortcut-tests"
   },

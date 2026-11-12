@@ -38,14 +38,19 @@ final class NativeTranscription {
         }
     }
 
-    func run(codexHome: String, completion: @escaping (Result<String, Error>) -> Void) {
+    func run(credentials: TranscriptionCredentials, completion: @escaping (Result<String, Error>) -> Void) {
         guard let folder = directory, process == nil else { return }
         generation += 1
         let revision = generation
         let child = Process()
         child.executableURL = helper
-        child.arguments = [folder.appendingPathComponent("recording.wav").path]
-        child.environment = ProcessInfo.processInfo.environment.merging(["CODEX_HOME": codexHome]) { _, new in new }
+        child.arguments = ["--provider", credentials.provider.rawValue, folder.appendingPathComponent("recording.wav").path]
+        var environment = ProcessInfo.processInfo.environment
+        environment.removeValue(forKey: "OPENAI_API_KEY")
+        if case .codexLogin(let home) = credentials { environment["CODEX_HOME"] = home }
+        child.environment = environment
+        let input = Pipe()
+        child.standardInput = input
         let resultFile = folder.appendingPathComponent("result.json")
         FileManager.default.createFile(atPath: resultFile.path, contents: nil, attributes: [.posixPermissions: 0o600])
         var output: FileHandle?
@@ -54,7 +59,6 @@ final class NativeTranscription {
             output = handle
             child.standardOutput = handle
             child.standardError = FileHandle.nullDevice
-            child.standardInput = FileHandle.nullDevice
             child.terminationHandler = { [weak self] stopped in
                 try? handle.close()
                 DispatchQueue.main.async {
@@ -69,6 +73,8 @@ final class NativeTranscription {
             }
             process = child
             try child.run()
+            if case .apiKey(let key) = credentials { try input.fileHandleForWriting.write(contentsOf: Data(key.utf8)) }
+            try? input.fileHandleForWriting.close()
             let deadline = DispatchWorkItem { [weak self] in
                 guard let self, self.generation == revision, child.isRunning else { return }
                 child.terminate()
@@ -79,6 +85,9 @@ final class NativeTranscription {
             timeout = deadline
             DispatchQueue.main.asyncAfter(deadline: .now() + 100, execute: deadline)
         } catch {
+            generation += 1
+            try? input.fileHandleForWriting.close()
+            if child.isRunning { child.terminate() }
             try? output?.close()
             process = nil
             completion(.failure(AudioFailure(message: "Transcription helper failed to start. Rebuild einsager, or Retry.")))

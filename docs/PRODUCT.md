@@ -19,29 +19,33 @@ missing.
 
 ## Product Purpose
 
-einsager is a dictation app that uses an existing Codex ChatGPT login for
-transcription. Hold or press a shortcut, speak, and the transcript reaches the
-field you were typing in, or the clipboard when that is not safe.
+einsager is a dictation app that uses the official OpenAI API for transcription.
+An optional Codex login path requires explicit acceptance of a terms warning.
+Hold or press a shortcut, speak, and the transcript reaches the field you were
+typing in, or the clipboard when that is not safe.
 
 ## Positioning
 
-A Wispr Flow alternative that runs on your own computer and reuses the Codex
-login you already have. There is no separate account or subscription. It is
-independent of OpenAI and Wispr.
+A Wispr Flow alternative that runs on your own computer and uses your OpenAI
+API key. einsager has no separate account or subscription. API billing and
+subscription credit eligibility belong to OpenAI. The project is independent
+of OpenAI and Wispr.
 
 ## Operating Context
 
 - A floating pill docks to a screen edge and shows recording, processing, and
   short result messages.
 - A tray or menu-bar icon gives access to actions and settings.
-- Transcription goes to ChatGPT's internal transcription endpoint through the
-  bundled Rust helper. Audio leaves the computer; credentials stay in the helper.
+- Audio leaves the computer for the selected OpenAI service. Keep credentials
+  out of renderer state and command arguments.
+- Keep the official API primary. Describe credit limits and expiry without a
+  promise of free use. Keep the unofficial Codex path behind explicit consent.
 
 ## Capabilities and Constraints
 
-- All systems: hands-free recording, Retry, Copy last, docking, Codex folder
-  selection. Automatic paste works on macOS with Accessibility access and on
-  Linux X11 with `xdotool`. Windows and Wayland use manual paste for now.
+- All systems: hands-free recording, Retry, Copy last, docking, and a choice
+  of transcription service. Automatic paste works on macOS with Accessibility
+  access and on Linux X11 with `xdotool`. Windows and Wayland use manual paste for now.
 - Transcript history keeps text, time, length, and a coarse loudness shape.
   Audio is deleted after a successful transcription, as before.
 - Clipboard behavior is a setting: always keep the transcript, keep it only if
